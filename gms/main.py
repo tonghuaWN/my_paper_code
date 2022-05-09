@@ -16,10 +16,10 @@ from train_ddpm.mindiffusion.ddpm import DDPM
 
 C = utils.AttrDict()
 C.model = 'vae'
-C.bs = 64
+C.bs = 128
 C.hidden_size = 512
 C.device = 'cuda'
-C.num_epochs = 50
+C.num_epochs = 120
 C.save_n = 100
 C.logdir = pathlib.Path('./logs/')
 C.full_cmd = 'python ' + ' '.join(sys.argv)  # full command that was called
@@ -73,30 +73,31 @@ if __name__ == '__main__':
             for key in metrics:
                 logger[key] += [metrics[key].detach().cpu()]
         logger['dt/train'] = time.time() - train_time
-        # TEST
-        model.eval()
-        with th.no_grad():
-            # if we define an explicit loss function, use it to test how we do on the test set.
-            if hasattr(model, 'loss'):
-                for test_batch in test_ds:
+        if (epoch + 1) % 10 == 0:
+            # TEST
+            model.eval()
+            with th.no_grad():
+                # if we define an explicit loss function, use it to test how we do on the test set.
+                if hasattr(model, 'loss'):
+                    for test_batch in test_ds:
+                        test_batch[0], test_batch[1] = test_batch[0].to(C.device), test_batch[1].to(C.device)
+                        test_loss, test_metrics, ddpm_loss = model.loss(test_batch[0])
+                        for key in test_metrics:
+                            logger['test/' + key] += [test_metrics[key].detach().cpu()]
+                else:
+                    test_batch = next(iter(test_ds))
                     test_batch[0], test_batch[1] = test_batch[0].to(C.device), test_batch[1].to(C.device)
-                    test_loss, test_metrics, ddpm_loss = model.loss(test_batch[0])
-                    for key in test_metrics:
-                        logger['test/' + key] += [test_metrics[key].detach().cpu()]
-            else:
-                test_batch = next(iter(test_ds))
-                test_batch[0], test_batch[1] = test_batch[0].to(C.device), test_batch[1].to(C.device)
-            # run the model specific evaluate function. usually draws samples and creates other relevant visualizations.
-            eval_time = time.time()
-            model.evaluate(writer, test_batch[0], epoch)
-            logger['dt/evaluate'] = time.time() - eval_time
-        model.train()
-        # LOGGING
-        logger['num_vars'] = num_vars
-        logger = utils.dump_logger(logger, writer, epoch, C)
-        if epoch % C.save_n == 0:
-            path = C.logdir / 'model.pt'
-            print("SAVED MODEL", path)
-            th.save(model.state_dict(), path)
-        if epoch >= C.num_epochs:
-            break
+                # run the model specific evaluate function. usually draws samples and creates other relevant visualizations.
+                eval_time = time.time()
+                model.evaluate(writer, test_batch[0], epoch)
+                logger['dt/evaluate'] = time.time() - eval_time
+            model.train()
+            # LOGGING
+            logger['num_vars'] = num_vars
+            logger = utils.dump_logger(logger, writer, epoch, C)
+            if epoch % C.save_n == 0:
+                path = C.logdir / 'model.pt'
+                print("SAVED MODEL", path)
+                th.save(model.state_dict(), path)
+            if epoch >= C.num_epochs:
+                break

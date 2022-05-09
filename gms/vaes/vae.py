@@ -155,6 +155,7 @@ class VAE(utils.GM):
 class Encoder(nn.Module):
     def __init__(self, out_size, C):
         super().__init__()
+        self.drop_out = 0.1
         H = C.hidden_size
         self.net = nn.Sequential(
             nn.Conv2d(1, H, 3, 2),
@@ -164,7 +165,7 @@ class Encoder(nn.Module):
             nn.Conv2d(H, H, 3, 1),
             nn.ReLU(),
             nn.Conv2d(H, 2 * out_size, 3, 2),
-            nn.Dropout(0.5),
+            nn.Dropout(self.drop_out),
             nn.Flatten(1, 3),
         )
         self.diffusion_net = nn.Sequential(  # F S P
@@ -205,7 +206,7 @@ class Encoder(nn.Module):
             Conv3(8, 8),
             nn.BatchNorm2d(8),
             nn.ReLU(),
-            nn.Dropout(0.5),
+            nn.Dropout(self.drop_out),
         )
 
     def get_dist(self, x):
@@ -246,6 +247,7 @@ class Decoder(nn.Module):
     def __init__(self, in_size, C):
         super().__init__()
         H = C.hidden_size
+        self.drop_out = 0.1
         self.net = nn.Sequential(
             nn.ConvTranspose2d(in_size, H, 5, 1),
             nn.ReLU(),
@@ -254,7 +256,7 @@ class Decoder(nn.Module):
             nn.ConvTranspose2d(H, H, 4, 2),
             nn.ReLU(),
             nn.ConvTranspose2d(H, 1, 3, 1),
-            nn.Dropout(0.5),
+            nn.Dropout(self.drop_out),
         )
         # self.diffusion_net = nn.Sequential(
         #     nn.ConvTranspose2d(16, 16, 3, 2, 1),
@@ -279,7 +281,7 @@ class Decoder(nn.Module):
             nn.ReLU(),
             nn.Conv2d(128, 128, 4, 2, 1),
             nn.ReLU(),
-            nn.Dropout(0.5),
+            nn.Dropout(self.drop_out),
             nn.Flatten(1, 3),
         )
 
