@@ -29,7 +29,8 @@ C.binarize = 1
 C.pad32 = 0
 C.dataset = 'mnist'
 C.test_freq = 5
-C.num_x_bits=8
+C.num_x_bits = 8
+C.relative_complexity = None
 
 if __name__ == '__main__':
     # PARSE CMD LINE
@@ -77,6 +78,9 @@ if __name__ == '__main__':
     print('num_vars', num_vars)
     # 计算相对复杂度
     tau_list = relative_complexity(train_ds, C.num_x_bits)
+    print("复杂度的相对顺序关系，从左到右依次简单，难-->简:")
+    print(tau_list)
+    model.ddpm.relative_complexity = tau_list
     # TRAINING LOOP
     for epoch in count():
         # TRAIN
@@ -84,7 +88,7 @@ if __name__ == '__main__':
         for batch in train_ds:
             batch[0], batch[1] = batch[0].to(C.device), batch[1].to(C.device)
             # TODO: see if we can just use loss and write the gan such that it works.
-            metrics = model.train_step(batch[0])
+            metrics = model.train_step(batch[0], batch[1])
             for key in metrics:
                 logger[key] += [metrics[key].detach().cpu()]
         logger['dt/train'] = time.time() - train_time
