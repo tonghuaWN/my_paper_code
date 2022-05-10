@@ -52,12 +52,14 @@ class VAE(utils.GM):
 
     def __init__(self, C):
         super().__init__(C)
+        self.relative_complexity = None
         self.encoder = Encoder(C.z_size, C)
         self.decoder = Decoder(C.z_size, C)
         self.optimizer = Adam(self.parameters(), lr=C.lr)
         self.NaiveUnet = NaiveUnet(8, 8, n_feat=128)
-        self.ddpm = DDPM(eps_model=self.NaiveUnet, betas=(1e-4, 0.02), n_T=1000).to("cuda:0")
+        self.ddpm = DDPM(eps_model=self.NaiveUnet, betas=(1e-4, 0.02), n_T=1000, relative_complexity=self.relative_complexity).to("cuda:0")
         self.ddpm_optim = torch.optim.Adam(self.ddpm.parameters(), lr=1e-5)
+
 
     def input_for_diffusion(self, x):
         features = self.encoder.net(x)
@@ -91,9 +93,9 @@ class VAE(utils.GM):
         log_q_conv = dist.log_p(eps)
         return log_q_conv
 
-    def loss(self, x):
+    def loss(self, x, label):
         input_diffusion, mu, log_std, z = self.input_for_diffusion(x)
-        ddpm_loss, score = self.ddpm(input_diffusion)
+        ddpm_loss, score = self.ddpm(input_diffusion, label)
         decoded = self.decoder(z)
         recon_loss = -tdib.Bernoulli(logits=decoded).log_prob(x).mean((1, 2, 3))
         # z_prior = tdib.Normal(0, 1)
