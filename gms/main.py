@@ -27,7 +27,7 @@ C.class_cond = 0
 C.binarize = 1
 C.pad32 = 0
 C.dataset = 'mnist'
-C.test_freq=1
+C.test_freq = 5
 
 if __name__ == '__main__':
     # PARSE CMD LINE
