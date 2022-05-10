@@ -15,7 +15,7 @@ import torch
 
 C = utils.AttrDict()
 C.model = 'vae'
-C.bs = 128
+C.bs = 64
 C.hidden_size = 512
 C.device = 'cuda'
 C.num_epochs = 120
@@ -27,6 +27,7 @@ C.class_cond = 0
 C.binarize = 1
 C.pad32 = 0
 C.dataset = 'mnist'
+C.test_freq=1
 
 if __name__ == '__main__':
     # PARSE CMD LINE
@@ -85,7 +86,7 @@ if __name__ == '__main__':
                 logger[key] += [metrics[key].detach().cpu()]
         logger['dt/train'] = time.time() - train_time
         logger = utils.dump_logger(logger, writer, epoch, C)
-        if (epoch + 1) % 3 == 0:
+        if (epoch + 1) % C.test_freq == 0:
             # TEST
             model.eval()
             with th.no_grad():
