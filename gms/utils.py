@@ -101,7 +101,7 @@ class GM(nn.Module):
         # self.name = pathlib.Path(inspect.getfile(self.__class__)).with_suffix('').name
         self.optimizer = None
 
-    def train_step(self, x):
+    def train_step(self, x, label):
         """take one step on a batch to update the network"""
         assert hasattr(self,
                        'loss'), 'you are using the default train_step. this requires you to define a loss function that returns loss, metrics'
@@ -109,7 +109,7 @@ class GM(nn.Module):
             self.optimizer = Adam(self.parameters(), self.C.lr)
         self.optimizer.zero_grad()
         self.ddpm_optim.zero_grad()
-        loss, metrics, ddpm_loss = self.loss(x)
+        loss, metrics, ddpm_loss = self.loss(x, label)
         loss.backward(retain_graph=True)
 
         # 更新ddpm
