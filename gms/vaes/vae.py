@@ -272,25 +272,56 @@ class Decoder(nn.Module):
 
         self.decode_net = nn.Sequential(  # F S P
             nn.Conv2d(8, 32, 4, 2, 1),  # (B,32,16,16)
-            nn.BatchNorm2d(32),
             nn.ReLU(),
             nn.Conv2d(32, 64, 4, 2, 1),
-            nn.BatchNorm2d(64),
             nn.ReLU(),
             nn.Conv2d(64, 128, 4, 2, 1),
-            nn.BatchNorm2d(128),
             nn.ReLU(),
             nn.Conv2d(128, 128, 4, 2, 1),
-            nn.BatchNorm2d(128),
             nn.ReLU(),
             nn.Conv2d(128, 128, 4, 2, 1),
-            nn.BatchNorm2d(128),
             nn.ReLU(),
             nn.Dropout(self.drop_out),
             nn.Flatten(1, 3),
         )
+        self.conv1 = residual_down_sampling_block(8, 32)
+        self.conv2 = residual_down_sampling_block(32, 64)
+        self.conv3 = residual_down_sampling_block(64, 128)
+        self.conv4 = residual_down_sampling_block(128, 128)
+        self.conv5 = residual_down_sampling_block(128, 128)
+
+    def decode_help(self, x):
+        x = self.conv1(x)
+        x = self.conv2(x)
+        x = self.conv3(x)
+        x = self.conv4(x)
+        x = self.conv5(x)
+        return x
 
     def forward(self, x):
         x = self.net(x[..., None, None])
         # x = self.diffusion_net(x)
         return x
+
+
+class residual_down_sampling_block(nn.Module):
+    def __init__(self, channel_in, channel_out, scale=2):
+        super(residual_down_sampling_block, self).__init__()
+
+        self.conv1_layer = nn.Conv2d(channel_in, channel_out // 2, kernel_size=3, stride=1, padding=1)
+        self.BatchNorm_Layer1 = nn.BatchNorm2d(channel_out // 2)
+        self.conv2_layer = nn.Conv2d(channel_out // 2, channel_out, kernel_size=3, stride=1, padding=1)
+        self.BatchNorm_Layer2 = nn.BatchNorm2d(channel_out)
+
+        self.conv3 = nn.Conv2d(channel_in, channel_out, kernel_size=3, stride=1, padding=1)
+
+        self.AvePool = nn.AvgPool2d(scale, scale)
+
+    def forward(self, input):
+        x = self.conv3(self.AvePool(input))
+
+        result = F.rrelu(self.BatchNorm_Layer1(self.conv1_layer(input)))
+        result = self.AvePool(result)
+        result = self.BatchNorm_Layer2(self.conv2_layer(result))
+
+        return F.rrelu(result + x)
