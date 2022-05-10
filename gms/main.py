@@ -73,6 +73,7 @@ if __name__ == '__main__':
             for key in metrics:
                 logger[key] += [metrics[key].detach().cpu()]
         logger['dt/train'] = time.time() - train_time
+        logger = utils.dump_logger(logger, writer, epoch, C)
         if (epoch + 1) % 10 == 0:
             # TEST
             model.eval()
