@@ -169,7 +169,7 @@ def combine_imgs(arr, row=5, col=5):
             x = arr.reshape([row, col, 28, 28]).permute(0, 2, 1, 3).flatten(0, 1).flatten(-2)
         elif C == 3:
             assert BS == row * col and H == W == 32, (BS, row, col, H, W)
-            x = arr.reshape([row, col, 28, 28]).permute(0, 2, 1, 3).flatten(0, 1).flatten(-2)
+            x = arr.reshape([row, col, 3,  32, 32]).permute(2, 0, 3, 1, 4).flatten(1, 2).flatten(-2)
         return x
     elif len(arr.shape) == 5:  # video
         BS, T, C, H, W = arr.shape
@@ -187,7 +187,7 @@ def tile_image(batch_image, n, m=None):
     channels, height, width = batch_image.size(1), batch_image.size(2), batch_image.size(3)
     batch_image = batch_image.view(n, m, channels, height, width)
     batch_image = batch_image.permute(2, 0, 3, 1, 4)  # n, height, n, width, c
-    batch_image = batch_image.contiguous().view(channels, n * height, m * width)
+    # batch_image = batch_image.contiguous().view(channels, n * height, m * width)
     return batch_image
 
 
