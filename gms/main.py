@@ -27,10 +27,11 @@ C.lr = 1e-4
 C.class_cond = 0
 C.binarize = 1
 C.pad32 = 0
-C.dataset = 'mnist'
-C.test_freq = 5
+C.dataset = 'cifar10'
+C.test_freq = 1
 C.num_x_bits = 8
 C.relative_complexity = None
+C.channel = 1 if C.dataset == 'mnist' else 3
 
 if __name__ == '__main__':
     # PARSE CMD LINE
@@ -77,7 +78,7 @@ if __name__ == '__main__':
     num_vars = utils.count_vars(model)  # 计算模型参数量
     print('num_vars', num_vars)
     # 计算相对复杂度
-    tau_list = relative_complexity(train_ds, C.num_x_bits)
+    tau_list = relative_complexity(train_ds, C.num_x_bits, C.channel)
     print("复杂度的相对顺序关系，从左到右依次简单，难-->简:")
     print(tau_list)
     model.ddpm.relative_complexity = tau_list
@@ -101,7 +102,7 @@ if __name__ == '__main__':
                 if hasattr(model, 'loss'):
                     for test_batch in test_ds:
                         test_batch[0], test_batch[1] = test_batch[0].to(C.device), test_batch[1].to(C.device)
-                        test_loss, test_metrics, ddpm_loss = model.loss(test_batch[0])
+                        test_loss, test_metrics, ddpm_loss = model.loss(test_batch[0], test_batch[1])
                         for key in test_metrics:
                             logger['test/' + key] += [test_metrics[key].detach().cpu()]
                 else:
