@@ -26,6 +26,7 @@ C.lr = 1e-4
 C.class_cond = 0
 C.binarize = 1
 C.pad32 = 0
+C.dataset = 'mnist'
 
 if __name__ == '__main__':
     # PARSE CMD LINE
@@ -62,8 +63,13 @@ if __name__ == '__main__':
     model = Model(C=C).to(C.device)
     writer = SummaryWriter(C.logdir)
     logger = utils.dump_logger({}, writer, 0, C)
-    train_ds, test_ds = utils.load_mnist(C.bs, binarize=C.binarize, pad32=C.pad32)
-    # train_ds, test_ds = utils.load_cifar10(C.bs, binarize=C.binarize, pad32=C.pad32)
+    if C.dataset == 'mnist':
+        train_ds, test_ds = utils.load_mnist(C.bs, binarize=C.binarize, pad32=C.pad32)
+    elif C.dataset == 'cifar10':
+        train_ds, test_ds = utils.load_cifar10(C.bs, binarize=C.binarize, pad32=C.pad32)
+    else:
+        train_ds = None
+        test_ds = None
     num_vars = utils.count_vars(model)  # 计算模型参数量
     print('num_vars', num_vars)
 
