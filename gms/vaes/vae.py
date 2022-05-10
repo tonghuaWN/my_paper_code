@@ -65,7 +65,8 @@ class VAE(utils.GM):
         z = self.encoder.reparameterize(mu, log_std)
         z = z.reshape(z.shape[0], z.shape[1], 1, 1)
         input_diffusion = self.encoder.vae_diffusion(z)
-        z1 = self.decoder.decode_net(input_diffusion)
+        # z1 = self.decoder.decode_net(input_diffusion)
+        z1 = self.decoder.decode_help(input_diffusion)
         return input_diffusion, mu, log_std, z1
 
     def compute_kl(self, x, y):
@@ -99,13 +100,11 @@ class VAE(utils.GM):
         z_prior = torch.rand_like(input_diffusion)
         a = 0.8
         z_ddpm_prior = a * z_prior + (1 - a) * score
-        kl_loss = self.compute_kl(z_ddpm_prior, input_diffusion) * self.C.beta  # z_ddpm_prior  input_diffusion
+        kl_loss = self.compute_kl(input_diffusion, z_ddpm_prior) * self.C.beta  # z_ddpm_prior  input_diffusion
         q_loss = torch.mean(recon_loss) + kl_loss
         metrics = {'vae_loss': q_loss, 'recon_loss': recon_loss.mean(), 'kl_loss': kl_loss.mean(),
                    "ddpm_loss": ddpm_loss}
         return q_loss, metrics, ddpm_loss
-
-        pass
 
     # def loss(self, x):
     #     """VAE loss"""
@@ -289,6 +288,7 @@ class Decoder(nn.Module):
         self.conv3 = residual_down_sampling_block(64, 128)
         self.conv4 = residual_down_sampling_block(128, 128)
         self.conv5 = residual_down_sampling_block(128, 128)
+        self.flat = nn.Sequential(nn.Flatten(1, 3), )
 
     def decode_help(self, x):
         x = self.conv1(x)
@@ -296,6 +296,7 @@ class Decoder(nn.Module):
         x = self.conv3(x)
         x = self.conv4(x)
         x = self.conv5(x)
+        x = self.flat(x)
         return x
 
     def forward(self, x):
