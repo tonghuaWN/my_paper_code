@@ -134,7 +134,7 @@ class Net(nn.Module):
 
 
 def relative_complexity(train_queue, num_x_bits):
-    checkpoint_path = "./weight/last.pth"
+    checkpoint_path = "/home/wn/下载/code/generative_models/generative_models/weight/last.pth"
     net = Net().cuda()
     checkpoint = torch.load(checkpoint_path, map_location='cpu')
     net.load_state_dict(checkpoint)
