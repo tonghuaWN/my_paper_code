@@ -164,8 +164,12 @@ def combine_imgs(arr, row=5, col=5):
     """takes batch of video or image and pushes the batch dim into certain image shapes given by b,row,col"""
     if len(arr.shape) == 4:  # image
         BS, C, H, W = arr.shape
-        assert BS == row * col and H == W == 28, (BS, row, col, H, W)
-        x = arr.reshape([row, col, 28, 28]).permute(0, 2, 1, 3).flatten(0, 1).flatten(-2)
+        if C == 1:
+            assert BS == row * col and H == W == 28, (BS, row, col, H, W)
+            x = arr.reshape([row, col, 28, 28]).permute(0, 2, 1, 3).flatten(0, 1).flatten(-2)
+        elif C == 3:
+            assert BS == row * col and H == W == 32, (BS, row, col, H, W)
+            x = arr.reshape([row, col, 28, 28]).permute(0, 2, 1, 3).flatten(0, 1).flatten(-2)
         return x
     elif len(arr.shape) == 5:  # video
         BS, T, C, H, W = arr.shape
@@ -174,6 +178,17 @@ def combine_imgs(arr, row=5, col=5):
         return x
     else:
         raise NotImplementedError()
+
+
+def tile_image(batch_image, n, m=None):
+    if m is None:
+        m = n
+    assert n * m == batch_image.size(0)
+    channels, height, width = batch_image.size(1), batch_image.size(2), batch_image.size(3)
+    batch_image = batch_image.view(n, m, channels, height, width)
+    batch_image = batch_image.permute(2, 0, 3, 1, 4)  # n, height, n, width, c
+    batch_image = batch_image.contiguous().view(channels, n * height, m * width)
+    return batch_image
 
 
 def append_location(x):
