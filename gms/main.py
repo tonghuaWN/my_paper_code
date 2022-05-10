@@ -10,6 +10,7 @@ import torch as th
 from gms import utils
 from gms import autoregs, vaes, gans, diffusion
 import torch
+from feature_extraction import relative_complexity
 
 # TRAINING SCRIPT
 
@@ -28,6 +29,7 @@ C.binarize = 1
 C.pad32 = 0
 C.dataset = 'mnist'
 C.test_freq = 5
+C.num_x_bits=8
 
 if __name__ == '__main__':
     # PARSE CMD LINE
@@ -73,7 +75,8 @@ if __name__ == '__main__':
         test_ds = None
     num_vars = utils.count_vars(model)  # 计算模型参数量
     print('num_vars', num_vars)
-
+    # 计算相对复杂度
+    tau_list = relative_complexity(train_ds, C.num_x_bits)
     # TRAINING LOOP
     for epoch in count():
         # TRAIN
