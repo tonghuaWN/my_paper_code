@@ -9,8 +9,7 @@ from itertools import count
 import torch as th
 from gms import utils
 from gms import autoregs, vaes, gans, diffusion
-from train_ddpm.mindiffusion.unet import NaiveUnet
-from train_ddpm.mindiffusion.ddpm import DDPM
+import torch
 
 # TRAINING SCRIPT
 
@@ -34,6 +33,12 @@ if __name__ == '__main__':
     for key, value in C.items():
         parser.add_argument(f'--{key}', type=utils.args_type(value), default=value)
     tempC, _ = parser.parse_known_args()
+    # 设置随机种子
+    torch.manual_seed(100)
+    np.random.seed(100)
+    torch.cuda.manual_seed(100)
+    torch.cuda.manual_seed_all(100)
+    torch.backends.cudnn.benchmark = True
     # SETUP
     Model = {
         'rnn': autoregs.RNN,
@@ -74,7 +79,7 @@ if __name__ == '__main__':
                 logger[key] += [metrics[key].detach().cpu()]
         logger['dt/train'] = time.time() - train_time
         logger = utils.dump_logger(logger, writer, epoch, C)
-        if (epoch + 1) % 10 == 0:
+        if (epoch + 1) % 3 == 0:
             # TEST
             model.eval()
             with th.no_grad():
