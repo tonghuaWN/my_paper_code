@@ -28,7 +28,7 @@ C.class_cond = 0
 C.binarize = 1
 C.pad32 = 0
 C.dataset = 'cifar10'
-C.test_freq = 1
+C.test_freq = 10
 C.num_x_bits = 8
 C.relative_complexity = None
 C.channel = 1 if C.dataset == 'mnist' else 3
