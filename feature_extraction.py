@@ -45,10 +45,10 @@ data_loader = {
 
 class Net(nn.Module):
 
-    def __init__(self):
+    def __init__(self, in_channel):
         super(Net, self).__init__()
         self.features = nn.Sequential(
-            nn.Conv2d(1, 64, kernel_size=3, stride=1, padding=1),
+            nn.Conv2d(in_channel, 64, kernel_size=3, stride=1, padding=1),
             nn.BatchNorm2d(64),
             nn.ReLU(),
             nn.Conv2d(64, 64, kernel_size=3, stride=1, padding=1),
@@ -64,7 +64,7 @@ class Net(nn.Module):
             nn.MaxPool2d(stride=2, kernel_size=2)
         )
         self.features2 = nn.Sequential(
-            nn.Conv2d(1, 64, kernel_size=3, stride=1, padding=1),
+            nn.Conv2d(in_channel, 64, kernel_size=3, stride=1, padding=1),
             nn.BatchNorm2d(64),
             nn.ReLU(),
             nn.Conv2d(64, 64, kernel_size=3, stride=1, padding=1),
@@ -133,9 +133,14 @@ class Net(nn.Module):
 # writer = SummaryWriter(log_dir="./log")
 
 
-def relative_complexity(train_queue, num_x_bits):
-    checkpoint_path = "/home/wn/下载/code/generative_models/generative_models/weight/last.pth"
-    net = Net().cuda()
+def relative_complexity(train_queue, num_x_bits, in_channel):
+    if in_channel == 1:
+        checkpoint_path = "/home/wn/下载/code/generative_models/generative_models/weight/mnist/last.pth"
+    elif in_channel == 3:
+        checkpoint_path = "/home/wn/下载/code/generative_models/generative_models/weight/cifar10/last.pth"
+    else:
+        checkpoint_path = ""
+    net = Net(in_channel).cuda()
     checkpoint = torch.load(checkpoint_path, map_location='cpu')
     net.load_state_dict(checkpoint)
     index = 0
