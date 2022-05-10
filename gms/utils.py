@@ -112,9 +112,11 @@ class GM(nn.Module):
         loss, metrics, ddpm_loss = self.loss(x)
         loss.backward(retain_graph=True)
 
-
         # 更新ddpm
         ddpm_loss.backward()
+        # 梯度裁剪
+        nn.utils.clip_grad_norm_(self.parameters(), max_norm=1.0)
+        nn.utils.clip_grad_norm_(self.ddpm.parameters(), max_norm=1.0)
         self.optimizer.step()
         self.ddpm_optim.step()
         return metrics
