@@ -144,14 +144,19 @@ class VAE(utils.GM):
         z_recon = self.ddpm.sample(25, (8, 32, 32), "cuda:0")
         decoder_input = self.decoder.decode_net(z_recon)
         samples = self._decode(decoder_input)
-        # writer.add_image('samples', utils.combine_imgs(samples, 5, 5)[None], epoch)
-        writer.add_image('samples', utils.tile_image(samples, 5, 5)[None], epoch)
+        if samples.shape[0] == 1:
+            writer.add_image('samples', utils.combine_imgs(samples, 5, 5)[None], epoch)  # [None]
+        elif samples.shape[0] == 3:
+            writer.add_image('samples', utils.tile_image(samples, 5, 5), epoch)
         input_diffusion, mu, log_std, z1 = self.input_for_diffusion(x[:8])
         recon = self.decoder.decode_net(input_diffusion)
         # z_post = self.encoder(x[:8])
         recon = self._decode(recon)
         recon = th.cat([x[:8].cpu(), recon], 0)
-        writer.add_image('reconstruction', utils.combine_imgs(recon, 2, 8)[None], epoch)
+        if samples.shape[0] == 1:
+            writer.add_image('reconstruction', utils.combine_imgs(recon, 2, 8)[None], epoch)
+        elif samples.shape[0] == 3:
+            writer.add_image('samples', utils.tile_image(samples, 5, 5), epoch)
 
     def _decode(self, x):
         return 1.0 * (self.decoder(x).exp() > 0.5).cpu()
