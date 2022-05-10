@@ -65,8 +65,8 @@ class VAE(utils.GM):
         z = self.encoder.reparameterize(mu, log_std)
         z = z.reshape(z.shape[0], z.shape[1], 1, 1)
         input_diffusion = self.encoder.vae_diffusion(z)
-        # z1 = self.decoder.decode_net(input_diffusion)
-        z1 = self.decoder.decode_help(input_diffusion)
+        z1 = self.decoder.decode_net(input_diffusion)
+        # z1 = self.decoder.decode_help(input_diffusion)
         return input_diffusion, mu, log_std, z1
 
     def compute_kl(self, x, y):
@@ -184,27 +184,32 @@ class Encoder(nn.Module):
             Conv3(64, 64),
             Conv3(64, 64),
             nn.BatchNorm2d(64),
-            nn.ReLU(),
+            nn.LeakyReLU(),
+            # nn.ReLU(),
             nn.ConvTranspose2d(64, 32, 2, 2),
             Conv3(32, 32),
             Conv3(32, 32),
             nn.BatchNorm2d(32),
-            nn.ReLU(),
+            nn.LeakyReLU(),
+            # nn.ReLU(),
             nn.ConvTranspose2d(32, 16, 2, 2),
             Conv3(16, 16),
             Conv3(16, 16),
             nn.BatchNorm2d(16),
-            nn.ReLU(),
+            nn.LeakyReLU(),
+            # nn.ReLU(),
             nn.ConvTranspose2d(16, 16, 2, 2),
             Conv3(16, 16),
             Conv3(16, 16),
             nn.BatchNorm2d(16),
-            nn.ReLU(),
+            nn.LeakyReLU(),
+            # nn.ReLU(),
             nn.ConvTranspose2d(16, 8, 2, 2),
             Conv3(8, 8),
             Conv3(8, 8),
             nn.BatchNorm2d(8),
-            nn.ReLU(),
+            nn.LeakyReLU(),
+            # nn.ReLU(),
             nn.Dropout(self.drop_out),
         )
 
@@ -291,6 +296,9 @@ class Decoder(nn.Module):
         self.flat = nn.Sequential(nn.Flatten(1, 3), )
 
     def decode_help(self, x):
+        """
+        将二维的隐变量转换为四维的隐变量
+        """
         x = self.conv1(x)
         x = self.conv2(x)
         x = self.conv3(x)
