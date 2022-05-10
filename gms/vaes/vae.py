@@ -57,9 +57,9 @@ class VAE(utils.GM):
         self.decoder = Decoder(C.z_size, C)
         self.optimizer = Adam(self.parameters(), lr=C.lr)
         self.NaiveUnet = NaiveUnet(8, 8, n_feat=128)
-        self.ddpm = DDPM(eps_model=self.NaiveUnet, betas=(1e-4, 0.02), n_T=1000, relative_complexity=self.relative_complexity).to("cuda:0")
+        self.ddpm = DDPM(eps_model=self.NaiveUnet, betas=(1e-4, 0.02), n_T=1000,
+                         relative_complexity=self.relative_complexity).to("cuda:0")
         self.ddpm_optim = torch.optim.Adam(self.ddpm.parameters(), lr=1e-5)
-
 
     def input_for_diffusion(self, x):
         features = self.encoder.net(x)
@@ -97,7 +97,10 @@ class VAE(utils.GM):
         input_diffusion, mu, log_std, z = self.input_for_diffusion(x)
         ddpm_loss, score = self.ddpm(input_diffusion, label)
         decoded = self.decoder(z)
-        recon_loss = -tdib.Bernoulli(logits=decoded).log_prob(x).mean((1, 2, 3))
+        if x.shape[1] == 1:
+            recon_loss = -tdib.Bernoulli(logits=decoded).log_prob(x).mean((1, 2, 3))
+        elif x.shape[1] == 3:
+            recon_loss = F.mse_loss(decoded, x)
         # z_prior = tdib.Normal(0, 1)
         z_prior = torch.rand_like(input_diffusion)
         a = 0.8
@@ -141,7 +144,8 @@ class VAE(utils.GM):
         z_recon = self.ddpm.sample(25, (8, 32, 32), "cuda:0")
         decoder_input = self.decoder.decode_net(z_recon)
         samples = self._decode(decoder_input)
-        writer.add_image('samples', utils.combine_imgs(samples, 5, 5)[None], epoch)
+        # writer.add_image('samples', utils.combine_imgs(samples, 5, 5)[None], epoch)
+        writer.add_image('samples', utils.tile_image(samples, 5, 5)[None], epoch)
         input_diffusion, mu, log_std, z1 = self.input_for_diffusion(x[:8])
         recon = self.decoder.decode_net(input_diffusion)
         # z_post = self.encoder(x[:8])
@@ -158,17 +162,33 @@ class Encoder(nn.Module):
         super().__init__()
         self.drop_out = 0.1
         H = C.hidden_size
-        self.net = nn.Sequential(
-            nn.Conv2d(1, H, 3, 2),
-            nn.ReLU(),
-            nn.Conv2d(H, H, 3, 2),
-            nn.ReLU(),
-            nn.Conv2d(H, H, 3, 1),
-            nn.ReLU(),
-            nn.Conv2d(H, 2 * out_size, 3, 2),
-            nn.Dropout(self.drop_out),
-            nn.Flatten(1, 3),
-        )
+        in_channel = C.channel
+        if in_channel == 1:
+            self.net = nn.Sequential(
+                nn.Conv2d(in_channel, H, 3, 2),
+                nn.ReLU(),
+                nn.Conv2d(H, H, 3, 2),
+                nn.ReLU(),
+                nn.Conv2d(H, H, 3, 1),
+                nn.ReLU(),
+                nn.Conv2d(H, 2 * out_size, 3, 2),
+                nn.Dropout(self.drop_out),
+                nn.Flatten(1, 3),
+            )
+        elif in_channel == 3:
+            self.net = nn.Sequential(
+                nn.Conv2d(in_channel, H, 4, 2, 1),
+                nn.ReLU(),
+                nn.Conv2d(H, H, 4, 2, 1),  # (64,512,6,6)
+                nn.ReLU(),
+                nn.Conv2d(H, H, 4, 2, 1),  # (64,512,2,2)
+                nn.ReLU(),
+                nn.Conv2d(H, H, 4, 2, 1),
+                nn.ReLU(),
+                nn.Conv2d(H, 2 * out_size, 2, 1, 0),
+                nn.Dropout(self.drop_out),
+                # nn.Flatten(1, 3),
+            )
         self.diffusion_net = nn.Sequential(  # F S P
             nn.Conv2d(1, 4, 3, 2, 1),
             nn.ReLU(),
@@ -254,16 +274,32 @@ class Decoder(nn.Module):
         super().__init__()
         H = C.hidden_size
         self.drop_out = 0.1
-        self.net = nn.Sequential(
-            nn.ConvTranspose2d(in_size, H, 5, 1),
-            nn.ReLU(),
-            nn.ConvTranspose2d(H, H, 4, 2),
-            nn.ReLU(),
-            nn.ConvTranspose2d(H, H, 4, 2),
-            nn.ReLU(),
-            nn.ConvTranspose2d(H, 1, 3, 1),
-            nn.Dropout(self.drop_out),
-        )
+        out_channel = C.channel
+        if out_channel == 1:
+            self.net = nn.Sequential(
+                nn.ConvTranspose2d(in_size, H, 5, 1),
+                nn.ReLU(),
+                nn.ConvTranspose2d(H, H, 4, 2),
+                nn.ReLU(),
+                nn.ConvTranspose2d(H, H, 4, 2),
+                nn.ReLU(),
+                nn.ConvTranspose2d(H, out_channel, 3, 1),
+                nn.Dropout(self.drop_out),
+            )
+        elif out_channel == 3:
+            self.net = nn.Sequential(  # (64,128)
+                nn.ConvTranspose2d(in_size, H, 5, 1),
+                nn.ReLU(),  # (64,512,5,5)
+                nn.ConvTranspose2d(H, H, 4, 2),
+                nn.ReLU(),  # (64,512,12,12)
+                nn.ConvTranspose2d(H, H, 4, 2),
+                nn.ReLU(),
+                nn.ConvTranspose2d(H, H, 4, 1),
+                nn.ReLU(),
+                nn.ConvTranspose2d(H, out_channel, 4, 1),
+                nn.ReLU(),
+                nn.Dropout(self.drop_out),
+            )
         # self.diffusion_net = nn.Sequential(
         #     nn.ConvTranspose2d(16, 16, 3, 2, 1),
         #     nn.ReLU(),  # b 16 14 14
