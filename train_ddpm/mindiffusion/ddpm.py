@@ -3,6 +3,7 @@ from typing import Dict, Tuple
 import torch
 import torch.nn as nn
 from torch.utils.data import Dataset, DataLoader
+import random
 
 
 class DDPM(nn.Module):
@@ -11,10 +12,11 @@ class DDPM(nn.Module):
             eps_model: nn.Module,
             betas: Tuple[float, float],
             n_T: int,
-            criterion: nn.Module = nn.MSELoss(),
+            criterion: nn.Module = nn.MSELoss(), relative_complexity=None,
     ) -> None:
         super(DDPM, self).__init__()
         self.eps_model = eps_model
+        self.relative_complexity = relative_complexity
 
         # register_buffer allows us to freely access these tensors by name. It helps device placement.
         for k, v in ddpm_schedules(betas[0], betas[1], n_T).items():
@@ -23,13 +25,26 @@ class DDPM(nn.Module):
         self.n_T = n_T
         self.criterion = criterion
 
-    def forward(self, x: torch.Tensor):  # -> torch.Tensor
+    def generate_ts(self, label):
+        result_list = []
+        numpy_label = label.cpu().detach().numpy()
+        for i in numpy_label.tolist():
+            range_tau = self.relative_complexity.index(i)
+            tau_item = random.uniform(range_tau * 0.1, range_tau * 0.1 + 0.1)
+            result_list.append(tau_item)
+        # tensor_tau_0 = torch.Tensor(result_list * 1000).cuda()     # [int(i*1000) for i in result_list]
+        tensor_tau_0 = torch.Tensor([int(i*1000) for i in result_list]).cuda().long()
+        return tensor_tau_0
+
+    def forward(self, x: torch.Tensor, label):  # -> torch.Tensor
         """
         Makes forward diffusion x_t, and tries to guess epsilon value from x_t using eps_model.
         This implements Algorithm 1 in the paper.
         """
+        # 改变时间的分布
+        _ts = self.generate_ts(label)
 
-        _ts = torch.randint(1, self.n_T + 1, (x.shape[0],)).to(x.device)
+        # _ts = torch.randint(1, self.n_T + 1, (x.shape[0],)).to(x.device)
         # t ~ Uniform(0, n_T)
         eps = torch.randn_like(x)  # eps ~ N(0, 1)
 
