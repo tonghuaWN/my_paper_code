@@ -33,7 +33,7 @@ class DDPM(nn.Module):
             tau_item = random.uniform(range_tau * 0.1, range_tau * 0.1 + 0.1)
             result_list.append(tau_item)
         # tensor_tau_0 = torch.Tensor(result_list * 1000).cuda()     # [int(i*1000) for i in result_list]
-        tensor_tau_0 = torch.Tensor([int(i*1000) for i in result_list]).cuda().long()
+        tensor_tau_0 = torch.Tensor([int(i * 1000) for i in result_list]).cuda().long()
         return tensor_tau_0
 
     def forward(self, x: torch.Tensor, label):  # -> torch.Tensor
@@ -42,9 +42,9 @@ class DDPM(nn.Module):
         This implements Algorithm 1 in the paper.
         """
         # 改变时间的分布
-        _ts = self.generate_ts(label)
+        # _ts = self.generate_ts(label)
 
-        # _ts = torch.randint(1, self.n_T + 1, (x.shape[0],)).to(x.device)
+        _ts = torch.randint(1, self.n_T + 1, (x.shape[0],)).to(x.device)
         # t ~ Uniform(0, n_T)
         eps = torch.randn_like(x)  # eps ~ N(0, 1)
 
@@ -55,7 +55,7 @@ class DDPM(nn.Module):
         # We should predict the "error term" from this x_t. Loss is what we return.
         score = self.eps_model(x_t, _ts / self.n_T)
 
-        return self.criterion(eps, score), score
+        return self.criterion(eps, score), score, _ts / self.n_T
 
     def sample(self, n_sample: int, size, device) -> torch.Tensor:
 
@@ -71,7 +71,7 @@ class DDPM(nn.Module):
                     self.oneover_sqrta[i] * (x_i - eps * self.mab_over_sqrtmab[i])
                     + self.sqrt_beta_t[i] * z
             )
-
+        x_i = torch.clamp(x_i, min=-3., max=3.)
         return x_i
 
 
