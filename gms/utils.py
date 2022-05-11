@@ -160,6 +160,14 @@ class BinaryHead(nn.Module):
         return tdib.Bernoulli(logits=x)
 
 
+def symmetrize_image_data(images):
+    return 2.0 * images - 1.0
+
+
+def unsymmetrize_image_data(images):
+    return (images + 1.) / 2.
+
+
 def combine_imgs(arr, row=5, col=5):
     """takes batch of video or image and pushes the batch dim into certain image shapes given by b,row,col"""
     if len(arr.shape) == 4:  # image
@@ -169,7 +177,7 @@ def combine_imgs(arr, row=5, col=5):
             x = arr.reshape([row, col, 28, 28]).permute(0, 2, 1, 3).flatten(0, 1).flatten(-2)
         elif C == 3:
             assert BS == row * col and H == W == 32, (BS, row, col, H, W)
-            x = arr.reshape([row, col, 3,  32, 32]).permute(2, 0, 3, 1, 4).flatten(1, 2).flatten(-2)
+            x = arr.reshape([row, col, 3, 32, 32]).permute(2, 0, 3, 1, 4).flatten(1, 2).flatten(-2)
         return x
     elif len(arr.shape) == 5:  # video
         BS, T, C, H, W = arr.shape
