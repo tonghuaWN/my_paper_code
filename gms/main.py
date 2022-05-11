@@ -28,7 +28,7 @@ C.class_cond = 0
 C.binarize = 1
 C.pad32 = 0
 C.dataset = 'cifar10'
-C.test_freq = 10
+C.test_freq = 1
 C.num_x_bits = 8
 C.relative_complexity = None
 C.channel = 1 if C.dataset == 'mnist' else 3
@@ -79,7 +79,7 @@ if __name__ == '__main__':
     print('num_vars', num_vars)
     # 计算相对复杂度
     tau_list = relative_complexity(train_ds, C.num_x_bits, C.channel)
-    print("复杂度的相对顺序关系，从左到右依次简单，难-->简:")
+    print("复杂度的相对顺序关系，从左到右依次简单，高-->低:")
     print(tau_list)
     model.ddpm.relative_complexity = tau_list
     # TRAINING LOOP
@@ -88,10 +88,14 @@ if __name__ == '__main__':
         train_time = time.time()
         for batch in train_ds:
             batch[0], batch[1] = batch[0].to(C.device), batch[1].to(C.device)
+            if C.dataset == 'cifar10':
+                batch[0] = utils.symmetrize_image_data(batch[0])
             # TODO: see if we can just use loss and write the gan such that it works.
             metrics = model.train_step(batch[0], batch[1])
             for key in metrics:
-                logger[key] += [metrics[key].detach().cpu()]
+                if key != "ts":
+                    logger[key] += [metrics[key].detach().cpu()]
+            writer.add_histogram('ts', metrics["ts"], epoch)
         logger['dt/train'] = time.time() - train_time
         logger = utils.dump_logger(logger, writer, epoch, C)
         if (epoch + 1) % C.test_freq == 0:
@@ -104,7 +108,8 @@ if __name__ == '__main__':
                         test_batch[0], test_batch[1] = test_batch[0].to(C.device), test_batch[1].to(C.device)
                         test_loss, test_metrics, ddpm_loss = model.loss(test_batch[0], test_batch[1])
                         for key in test_metrics:
-                            logger['test/' + key] += [test_metrics[key].detach().cpu()]
+                            if key != "ts":
+                                logger['test/' + key] += [test_metrics[key].detach().cpu()]
                 else:
                     test_batch = next(iter(test_ds))
                     test_batch[0], test_batch[1] = test_batch[0].to(C.device), test_batch[1].to(C.device)
