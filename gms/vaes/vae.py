@@ -67,6 +67,8 @@ class VAE(utils.GM):
         z = self.encoder.reparameterize(mu, log_std)
         z = z.reshape(z.shape[0], z.shape[1], 1, 1)
         input_diffusion = self.encoder.vae_diffusion(z)
+        # input_diffusion = torch.softmax(input_diffusion, dim=1)
+        # input_diffusion = torch.clamp(input_diffusion, min=-10., max=10.)
         z1 = self.decoder.decode_net(input_diffusion)
         # z1 = self.decoder.decode_help(input_diffusion)
         return input_diffusion, mu, log_std, z1
@@ -95,20 +97,26 @@ class VAE(utils.GM):
 
     def loss(self, x, label):
         input_diffusion, mu, log_std, z = self.input_for_diffusion(x)
-        ddpm_loss, score = self.ddpm(input_diffusion, label)
+        print("编码出的图像最大值：" + str(torch.max(input_diffusion)))
+        ddpm_loss, score, ts = self.ddpm(input_diffusion, label)
+        print("得分网络损失："+str(ddpm_loss))
+        print("解码器输入的最大值："+str(torch.max(z)))
         decoded = self.decoder(z)
+        print("解码出的图像最大值：" + str(torch.max(decoded)))
         if x.shape[1] == 1:
             recon_loss = -tdib.Bernoulli(logits=decoded).log_prob(x).mean((1, 2, 3))
         elif x.shape[1] == 3:
             recon_loss = F.mse_loss(decoded, x)
+        else:
+            recon_loss = 0
         # z_prior = tdib.Normal(0, 1)
         z_prior = torch.rand_like(input_diffusion)
-        a = 0.8
+        a = 0.7
         z_ddpm_prior = a * z_prior + (1 - a) * score
         kl_loss = self.compute_kl(input_diffusion, z_ddpm_prior) * self.C.beta  # z_ddpm_prior  input_diffusion
         q_loss = torch.mean(recon_loss) + kl_loss
         metrics = {'vae_loss': q_loss, 'recon_loss': recon_loss.mean(), 'kl_loss': kl_loss.mean(),
-                   "ddpm_loss": ddpm_loss}
+                   "ddpm_loss": ddpm_loss, "ts": ts}
         return q_loss, metrics, ddpm_loss
 
     # def loss(self, x):
@@ -143,20 +151,26 @@ class VAE(utils.GM):
         """run samples and other evaluations"""
         z_recon = self.ddpm.sample(25, (8, 32, 32), "cuda:0")
         decoder_input = self.decoder.decode_net(z_recon)
+        decoder_input = torch.clamp(decoder_input, min=-3, max=3)
         samples = self._decode(decoder_input)
-        if samples.shape[0] == 1:
+        samples = torch.clamp(samples, min=-1., max=1.)
+        if samples.shape[1] == 3:
+            samples = utils.unsymmetrize_image_data(samples)
+        if samples.shape[1] == 1:
             writer.add_image('samples', utils.combine_imgs(samples, 5, 5)[None], epoch)  # [None]
-        elif samples.shape[0] == 3:
-            writer.add_image('samples', utils.tile_image(samples, 5, 5), epoch)
+        elif samples.shape[1] == 3:
+            print("正在随机采样．．．．")
+            writer.add_image('samples', utils.combine_imgs(samples, 5, 5), epoch)
         input_diffusion, mu, log_std, z1 = self.input_for_diffusion(x[:8])
         recon = self.decoder.decode_net(input_diffusion)
         # z_post = self.encoder(x[:8])
         recon = self._decode(recon)
         recon = th.cat([x[:8].cpu(), recon], 0)
-        if samples.shape[0] == 1:
+        if samples.shape[1] == 1:
             writer.add_image('reconstruction', utils.combine_imgs(recon, 2, 8)[None], epoch)
-        elif samples.shape[0] == 3:
-            writer.add_image('samples', utils.tile_image(samples, 5, 5), epoch)
+        elif samples.shape[1] == 3:
+            print("正在重构采样．．．．")
+            writer.add_image('reconstruction', utils.combine_imgs(recon, 2, 8), epoch)
 
     def _decode(self, x):
         return 1.0 * (self.decoder(x).exp() > 0.5).cpu()
