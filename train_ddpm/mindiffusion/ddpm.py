@@ -54,8 +54,11 @@ class DDPM(nn.Module):
         )  # This is the x_t, which is sqrt(alphabar) x_0 + sqrt(1-alphabar) * eps
         # We should predict the "error term" from this x_t. Loss is what we return.
         score = self.eps_model(x_t, _ts / self.n_T)
-
-        return self.criterion(eps, score), score, _ts / self.n_T
+        mix_paras = self.sqrtmab[_ts, None, None, None] * x_t
+        a = 0.7
+        paras = a * mix_paras + (1 - a) * score
+        p_loss = torch.square(paras - eps)
+        return self.criterion(eps, paras), p_loss, _ts / self.n_T
 
     def sample(self, n_sample: int, size, device) -> torch.Tensor:
 
