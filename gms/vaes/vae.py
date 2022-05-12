@@ -56,7 +56,7 @@ class VAE(utils.GM):
         self.encoder = Encoder(C.z_size, C)
         self.decoder = Decoder(C.z_size, C)
         self.optimizer = Adam(self.parameters(), lr=C.lr)
-        self.NaiveUnet = NaiveUnet(8, 8, n_feat=128)
+        self.NaiveUnet = NaiveUnet(16, 16, n_feat=128)
         self.ddpm = DDPM(eps_model=self.NaiveUnet, betas=(1e-4, 0.02), n_T=1000,
                          relative_complexity=self.relative_complexity).to("cuda:0")
         self.ddpm_optim = torch.optim.Adam(self.ddpm.parameters(), lr=1e-5)
@@ -64,14 +64,16 @@ class VAE(utils.GM):
     def input_for_diffusion(self, x):
         features = self.encoder.net(x)
         mu, log_std = self.encoder.get_mu_log_std(features)
+        dist = Normal(mu, log_std)
         z = self.encoder.reparameterize(mu, log_std)
-        z = z.reshape(z.shape[0], z.shape[1], 1, 1)
-        input_diffusion = self.encoder.vae_diffusion(z)
+        all_log_q = dist.log_p(z)
+        # z = z.reshape(z.shape[0], z.shape[1], 1, 1)
+        # input_diffusion = self.encoder.vae_diffusion(z)
         # input_diffusion = torch.softmax(input_diffusion, dim=1)
         # input_diffusion = torch.clamp(input_diffusion, min=-10., max=10.)
-        z1 = self.decoder.decode_net(input_diffusion)
+        # z1 = self.decoder.decode_net(input_diffusion)
         # z1 = self.decoder.decode_help(input_diffusion)
-        return input_diffusion, mu, log_std, z1
+        return z, mu, log_std, all_log_q
 
     def compute_kl(self, x, y):
         import torch.nn as nn
@@ -96,13 +98,13 @@ class VAE(utils.GM):
         return log_q_conv
 
     def loss(self, x, label):
-        input_diffusion, mu, log_std, z = self.input_for_diffusion(x)
-        print("编码出的图像最大值：" + str(torch.max(input_diffusion)))
-        ddpm_loss, score, ts = self.ddpm(input_diffusion, label)
-        print("得分网络损失："+str(ddpm_loss))
-        print("解码器输入的最大值："+str(torch.max(z)))
+        z, mu, log_std, all_log_q = self.input_for_diffusion(x)
+        # print("编码出的图像最大值：" + str(torch.max(z)))  # (64,32,8,8)
+        ddpm_loss, p_loss, ts = self.ddpm(z, label)
+        # print("得分网络损失："+str(ddpm_loss))
+        # print("解码器输入的最大值："+str(torch.max(z)))
         decoded = self.decoder(z)
-        print("解码出的图像最大值：" + str(torch.max(decoded)))
+        # print("解码出的图像最大值：" + str(torch.max(decoded)))
         if x.shape[1] == 1:
             recon_loss = -tdib.Bernoulli(logits=decoded).log_prob(x).mean((1, 2, 3))
         elif x.shape[1] == 3:
@@ -110,10 +112,10 @@ class VAE(utils.GM):
         else:
             recon_loss = 0
         # z_prior = tdib.Normal(0, 1)
-        z_prior = torch.rand_like(input_diffusion)
-        a = 0.7
-        z_ddpm_prior = a * z_prior + (1 - a) * score
-        kl_loss = self.compute_kl(input_diffusion, z_ddpm_prior) * self.C.beta  # z_ddpm_prior  input_diffusion
+        # z_prior = torch.rand_like(input_diffusion)
+        # a = 0.7
+        # z_ddpm_prior = a * z_prior + (1 - a) * score
+        kl_loss = self.compute_kl(all_log_q, p_loss) * self.C.beta  # z_ddpm_prior  input_diffusion
         q_loss = torch.mean(recon_loss) + kl_loss
         metrics = {'vae_loss': q_loss, 'recon_loss': recon_loss.mean(), 'kl_loss': kl_loss.mean(),
                    "ddpm_loss": ddpm_loss, "ts": ts}
@@ -149,10 +151,10 @@ class VAE(utils.GM):
 
     def evaluate(self, writer, x, epoch):
         """run samples and other evaluations"""
-        z_recon = self.ddpm.sample(25, (8, 32, 32), "cuda:0")
-        decoder_input = self.decoder.decode_net(z_recon)
-        decoder_input = torch.clamp(decoder_input, min=-3, max=3)
-        samples = self._decode(decoder_input)
+        z_recon = self.ddpm.sample(25, (16, 16, 16), "cuda:0")
+        # decoder_input = self.decoder(z_recon)
+        # decoder_input = torch.clamp(decoder_input, min=-3, max=3)
+        samples = self._decode(z_recon)
         samples = torch.clamp(samples, min=-1., max=1.)
         if samples.shape[1] == 3:
             samples = utils.unsymmetrize_image_data(samples)
@@ -161,10 +163,10 @@ class VAE(utils.GM):
         elif samples.shape[1] == 3:
             print("正在随机采样．．．．")
             writer.add_image('samples', utils.combine_imgs(samples, 5, 5), epoch)
-        input_diffusion, mu, log_std, z1 = self.input_for_diffusion(x[:8])
-        recon = self.decoder.decode_net(input_diffusion)
+        z, mu, log_std, all_log_q = self.input_for_diffusion(x[:8])
+        # recon = self.decoder.decode_net(input_diffusion)
         # z_post = self.encoder(x[:8])
-        recon = self._decode(recon)
+        recon = self._decode(z)
         recon = th.cat([x[:8].cpu(), recon], 0)
         if samples.shape[1] == 1:
             writer.add_image('reconstruction', utils.combine_imgs(recon, 2, 8)[None], epoch)
@@ -184,27 +186,35 @@ class Encoder(nn.Module):
         in_channel = C.channel
         if in_channel == 1:
             self.net = nn.Sequential(
-                nn.Conv2d(in_channel, H, 3, 2),
+                nn.Conv2d(in_channel, H, 2, 2, 2),
                 nn.ReLU(),
-                nn.Conv2d(H, H, 3, 2),
+                nn.Conv2d(H, int(H/2), 3, 1, 1),
                 nn.ReLU(),
-                nn.Conv2d(H, H, 3, 1),
+                nn.Conv2d(int(H/2), int(H / 4), 3, 1, 1),
                 nn.ReLU(),
-                nn.Conv2d(H, 2 * out_size, 3, 2),
+                nn.Conv2d(int(H / 4), int(H / 16), 3, 1, 1),
                 nn.Dropout(self.drop_out),
-                nn.Flatten(1, 3),
+                # nn.Flatten(1, 3),
             )
         elif in_channel == 3:
             self.net = nn.Sequential(
-                nn.Conv2d(in_channel, H, 4, 2, 1),
+                nn.Conv2d(in_channel, H, 4, 2, 1),  # (64,512,16,16)
                 nn.ReLU(),
-                nn.Conv2d(H, H, 4, 2, 1),  # (64,512,6,6)
+                nn.Conv2d(H, int(H/2), 3, 1, 1),  # (64,256,16,16)
                 nn.ReLU(),
-                nn.Conv2d(H, H, 4, 2, 1),  # (64,512,2,2)
+                nn.Conv2d(int(H/2), int(H / 4), 3, 1, 1),  # (64,128,16,16)
                 nn.ReLU(),
-                nn.Conv2d(H, H, 4, 2, 1),
+                nn.Conv2d(int(H / 4), int(H / 8), 3, 1, 1),  # (64,64,16,16)
                 nn.ReLU(),
-                nn.Conv2d(H, 2 * out_size, 2, 1, 0),
+                nn.Conv2d(int(H / 8), int(H / 16), 3, 1, 1),  # (64,32,16,16)
+                nn.ReLU(),
+                # nn.Conv2d(H / 8, H / 16., 3, 1, 1),  # (64,32,8,8)
+                # nn.ReLU(),
+                # nn.Conv2d(H, H, 4, 2, 1),  # (64,512,,2)
+                # nn.ReLU(),
+                # nn.Conv2d(H, H, 4, 2, 1),  # (64,512,2,2)
+                # nn.ReLU(),
+                # nn.Conv2d(H, 2 * out_size, 2, 1, 0),
                 nn.Dropout(self.drop_out),
                 # nn.Flatten(1, 3),
             )
@@ -296,27 +306,33 @@ class Decoder(nn.Module):
         out_channel = C.channel
         if out_channel == 1:
             self.net = nn.Sequential(
-                nn.ConvTranspose2d(in_size, H, 5, 1),
+                nn.ConvTranspose2d(16, 16, 2, 2, 3),
                 nn.ReLU(),
-                nn.ConvTranspose2d(H, H, 4, 2),
+                nn.ConvTranspose2d(16, 8, 1, 1),
                 nn.ReLU(),
-                nn.ConvTranspose2d(H, H, 4, 2),
+                nn.ConvTranspose2d(8, 8, 1, 1),
                 nn.ReLU(),
-                nn.ConvTranspose2d(H, out_channel, 3, 1),
+                nn.ConvTranspose2d(8, out_channel, 3, 1),
                 nn.Dropout(self.drop_out),
             )
         elif out_channel == 3:
             self.net = nn.Sequential(  # (64,128)
-                nn.ConvTranspose2d(in_size, H, 5, 1),
+                nn.ConvTranspose2d(16, 16, 2, 2),
+                Conv3(16, 16),
+                Conv3(16, 16),
                 nn.ReLU(),  # (64,512,5,5)
-                nn.ConvTranspose2d(H, H, 4, 2),
+                nn.ConvTranspose2d(16, 16, 1, 1),
+                Conv3(16, 16),
+                Conv3(16, 16),
                 nn.ReLU(),  # (64,512,12,12)
-                nn.ConvTranspose2d(H, H, 4, 2),
+                nn.ConvTranspose2d(16, 16, 1, 1),
+                Conv3(16, 16),
+                Conv3(16, 16),
                 nn.ReLU(),
-                nn.ConvTranspose2d(H, H, 4, 1),
+                nn.ConvTranspose2d(16, 3, 1, 1),
                 nn.ReLU(),
-                nn.ConvTranspose2d(H, out_channel, 4, 1),
-                nn.ReLU(),
+                # nn.ConvTranspose2d(H, out_channel, 4, 1),
+                # nn.ReLU(),
                 nn.Dropout(self.drop_out),
             )
         # self.diffusion_net = nn.Sequential(
@@ -365,7 +381,8 @@ class Decoder(nn.Module):
         return x
 
     def forward(self, x):
-        x = self.net(x[..., None, None])
+        # x = self.net(x[..., None, None])
+        x = self.net(x)
         # x = self.diffusion_net(x)
         return x
 
