@@ -93,12 +93,12 @@ class NaiveUnet(nn.Module):
         self.down2 = UnetDown(n_feat, 2 * n_feat)
         self.down3 = UnetDown(2 * n_feat, 2 * n_feat)
 
-        self.to_vec = nn.Sequential(nn.AvgPool2d(4), nn.ReLU())
+        self.to_vec = nn.Sequential(nn.AvgPool2d(2), nn.ReLU())  # 4-->1
 
         self.timeembed = TimeSiren(2 * n_feat)
 
         self.up0 = nn.Sequential(
-            nn.ConvTranspose2d(2 * n_feat, 2 * n_feat, 4, 4),
+            nn.ConvTranspose2d(2 * n_feat, 2 * n_feat, 2, 4),
             nn.GroupNorm(8, 2 * n_feat),
             nn.ReLU(),
         )
