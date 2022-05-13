@@ -292,7 +292,7 @@ class DDP(nn.Module):
         #                      dtype=torch.int64, device=img.device)
         if paper:
             time = self.sampler.generate_ts(batch_ix, self.relative_complexity)
-            weights = self.sampler.sample(img.size(0), device=img.device)
+            _, weights = self.sampler.sample(img.size(0), device=img.device)
         else:
             time, weights = self.sampler.sample(img.size(0), device=img.device)
         loss, l2_term = self.diffusion.training_losses(self.model, img, time)
