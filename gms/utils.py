@@ -108,7 +108,7 @@ class GM(nn.Module):
         if self.optimizer is None:
             self.optimizer = Adam(self.parameters(), self.C.lr)
         self.optimizer.zero_grad()
-        self.ddpm_optim.zero_grad()
+        self.ddpm.optimizer.zero_grad()
         loss, metrics, ddpm_loss = self.loss(x, label)
         loss.backward(retain_graph=True)
 
@@ -118,7 +118,7 @@ class GM(nn.Module):
         nn.utils.clip_grad_norm_(self.parameters(), max_norm=1.0)
         nn.utils.clip_grad_norm_(self.ddpm.parameters(), max_norm=1.0)
         self.optimizer.step()
-        self.ddpm_optim.step()
+        self.ddpm.optimizer.step()
         return metrics
 
     def evaluate(self, writer, x, epoch):

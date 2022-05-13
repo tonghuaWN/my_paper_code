@@ -16,7 +16,7 @@ from feature_extraction import relative_complexity
 
 C = utils.AttrDict()
 C.model = 'vae'
-C.bs = 64
+C.bs = 400
 C.hidden_size = 512
 C.device = 'cuda'
 C.num_epochs = 120
@@ -32,6 +32,8 @@ C.test_freq = 1
 C.num_x_bits = 8
 C.relative_complexity = None
 C.channel = 1 if C.dataset == 'mnist' else 3
+C.reverse_test = False
+C.beta_schedule = "cosine"
 
 if __name__ == '__main__':
     # PARSE CMD LINE
@@ -88,14 +90,15 @@ if __name__ == '__main__':
         train_time = time.time()
         for batch in train_ds:
             batch[0], batch[1] = batch[0].to(C.device), batch[1].to(C.device)
-            if C.dataset == 'cifar10':
-                batch[0] = utils.symmetrize_image_data(batch[0])
+            # if C.dataset == 'cifar10':
+            #     batch[0] = utils.symmetrize_image_data(batch[0])
             # TODO: see if we can just use loss and write the gan such that it works.
             metrics = model.train_step(batch[0], batch[1])
             for key in metrics:
-                if key != "ts":
+                if key != "ts" and key != "weights":
                     logger[key] += [metrics[key].detach().cpu()]
             writer.add_histogram('ts', metrics["ts"], epoch)
+            writer.add_histogram('weights', metrics["weights"], epoch)
         logger['dt/train'] = time.time() - train_time
         logger = utils.dump_logger(logger, writer, epoch, C)
         if (epoch + 1) % C.test_freq == 0:
@@ -105,6 +108,8 @@ if __name__ == '__main__':
                 # if we define an explicit loss function, use it to test how we do on the test set.
                 if hasattr(model, 'loss'):
                     for test_batch in test_ds:
+                        # if C.dataset == 'cifar10':
+                        #     test_batch[0] = utils.symmetrize_image_data(test_batch[0])
                         test_batch[0], test_batch[1] = test_batch[0].to(C.device), test_batch[1].to(C.device)
                         test_loss, test_metrics, ddpm_loss = model.loss(test_batch[0], test_batch[1])
                         for key in test_metrics:
