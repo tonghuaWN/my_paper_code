@@ -9,6 +9,7 @@ from train_ddpm.mindiffusion.unet import NaiveUnet
 from train_ddpm.mindiffusion.ddpm import DDPM
 from train_ddpm.mindiffusion.unet import Conv3
 import numpy as np
+from train_ddpm.mindiffusion.ddpm import DDP
 
 
 @torch.jit.script
@@ -16,6 +17,30 @@ def sample_normal_jit(mu, sigma):
     rho = mu.mul(0).normal_()
     z = rho.mul_(sigma).add_(mu)
     return z, rho
+
+
+class HF(nn.Module):
+    def __init__(self):
+        super(HF, self).__init__()
+
+    def forward(self, v, z):
+        """
+        :param v: batch_size (B) x latent_size (L)
+        :param z: batch_size (B) x latent_size (L)
+        :return: z_new = z - 2* v v_T / norm(v,2) * z
+        """
+        # v * v_T：向量v与v的转置相乘 torch.bmm的使用：两个张量必须时三维的
+        vvT = torch.bmm(v.unsqueeze(2), v.unsqueeze(1))  # v * v_T : batch_dot( B x L x 1 * B x 1 x L ) = B x L x L
+        # v * v_T * z
+        vvTz = torch.bmm(vvT, z.unsqueeze(2)).squeeze(
+            2)  # A * z : batchdot( B x L x L * B x L x 1 ).squeeze(2) = (B x L x 1).squeeze(2) = B x L
+        # calculate norm ||v||^2
+        norm_sq = torch.sum(v * v, 1).unsqueeze(1)  # calculate norm-2 for each row : B x 1
+
+        norm_sq = norm_sq.expand(norm_sq.size(0), v.size(1))  # expand sizes : B x L
+        # calculate new z
+        z_new = z - 2 * vvTz / norm_sq  # z - 2 * v * v_T  * z / norm2(v)
+        return z_new
 
 
 class Normal:
@@ -55,11 +80,36 @@ class VAE(utils.GM):
         self.relative_complexity = None
         self.encoder = Encoder(C.z_size, C)
         self.decoder = Decoder(C.z_size, C)
+        self.ddpm = DDP(C)
         self.optimizer = Adam(self.parameters(), lr=C.lr)
-        self.NaiveUnet = NaiveUnet(16, 16, n_feat=128)
-        self.ddpm = DDPM(eps_model=self.NaiveUnet, betas=(1e-4, 0.02), n_T=1000,
-                         relative_complexity=self.relative_complexity).to("cuda:0")
-        self.ddpm_optim = torch.optim.Adam(self.ddpm.parameters(), lr=1e-5)
+        # self.NaiveUnet = NaiveUnet(16, 16, n_feat=128)
+        # self.ddpm = DDPM(eps_model=self.NaiveUnet, betas=(1e-4, 0.02), n_T=1000,
+        #                  relative_complexity=self.relative_complexity).to("cuda:0")
+        # self.ddpm_optim = torch.optim.Adam(self.ddpm.parameters(), lr=1e-5)
+
+        self.reverse_test = C.reverse_test
+        self.number_of_flows = 0
+        self.z1_size = C.z_size
+        # Householder flow
+        self.v_layers = nn.ModuleList()
+        # T > 0
+        if self.number_of_flows > 0:
+            # T = 1
+            self.v_layers.append(nn.Linear(300, self.z1_size))
+            # T > 1
+            for i in range(1, self.number_of_flows):
+                self.v_layers.append(nn.Linear(self.z1_size, self.z1_size))
+
+    def q_z_Flow(self, z, h_last):
+        v = {}
+        # Householder Flow:
+        if self.number_of_flows > 0:
+            v['1'] = self.v_layers[0](h_last)
+            z['1'] = self.HF(v['1'], z['0'])
+            for i in range(1, self.number_of_flows):
+                v[str(i + 1)] = self.v_layers[i](v[str(i)])
+                z[str(i + 1)] = self.HF(v[str(i + 1)], z[str(i)])
+        return z
 
     def input_for_diffusion(self, x):
         features = self.encoder.net(x)
@@ -100,7 +150,12 @@ class VAE(utils.GM):
     def loss(self, x, label):
         z, mu, log_std, all_log_q = self.input_for_diffusion(x)
         # print("编码出的图像最大值：" + str(torch.max(z)))  # (64,32,8,8)
-        ddpm_loss, p_loss, ts = self.ddpm(z, label)
+        # ddpm_loss, p_loss, ts = self.ddpm(z, label)
+        loss = self.ddpm.training_step(z, label)
+        ddpm_loss = loss["loss"]
+        p_loss = loss["p_loss"]
+        ts = loss["ts"]
+        weights = loss["weights"]
         # print("得分网络损失："+str(ddpm_loss))
         # print("解码器输入的最大值："+str(torch.max(z)))
         decoded = self.decoder(z)
@@ -111,14 +166,15 @@ class VAE(utils.GM):
             recon_loss = F.mse_loss(decoded, x)
         else:
             recon_loss = 0
-        # z_prior = tdib.Normal(0, 1)
-        # z_prior = torch.rand_like(input_diffusion)
-        # a = 0.7
-        # z_ddpm_prior = a * z_prior + (1 - a) * score
         kl_loss = self.compute_kl(all_log_q, p_loss) * self.C.beta  # z_ddpm_prior  input_diffusion
+        # kl_loss = self.kl(all_log_q, p_loss)
         q_loss = torch.mean(recon_loss) + kl_loss
-        metrics = {'vae_loss': q_loss, 'recon_loss': recon_loss.mean(), 'kl_loss': kl_loss.mean(),
-                   "ddpm_loss": ddpm_loss, "ts": ts}
+        if self.training:
+            metrics = {'vae_loss': q_loss, 'recon_loss': recon_loss.mean(), 'kl_loss': kl_loss.mean(),
+                       "ddpm_loss": ddpm_loss, "ts": ts, "weights": weights}
+        else:
+            metrics = {'vae_loss': q_loss, 'recon_loss': recon_loss.mean(), 'kl_loss': kl_loss.mean(),
+                       "ddpm_loss": ddpm_loss}
         return q_loss, metrics, ddpm_loss
 
     # def loss(self, x):
@@ -151,26 +207,45 @@ class VAE(utils.GM):
 
     def evaluate(self, writer, x, epoch):
         """run samples and other evaluations"""
-        z_recon = self.ddpm.sample(25, (16, 16, 16), "cuda:0")
-        # decoder_input = self.decoder(z_recon)
-        # decoder_input = torch.clamp(decoder_input, min=-3, max=3)
-        samples = self._decode(z_recon)
-        samples = torch.clamp(samples, min=-1., max=1.)
-        if samples.shape[1] == 3:
-            samples = utils.unsymmetrize_image_data(samples)
-        if samples.shape[1] == 1:
-            writer.add_image('samples', utils.combine_imgs(samples, 5, 5)[None], epoch)  # [None]
-        elif samples.shape[1] == 3:
-            print("正在随机采样．．．．")
-            writer.add_image('samples', utils.combine_imgs(samples, 5, 5), epoch)
+        if self.reverse_test:
+            tau_reverse_list = [950, 850, 750, 650, 550, 450, 350, 250, 150, 0]
+        else:
+            tau_reverse_list = [0]
+        x_1 = torch.randn(25, *(16, 16, 16)).to("cuda:0")
+        for i in tau_reverse_list:
+            z_recon = self.ddpm.forward((25, 16, 16, 16), end=i, x_1=x_1)
+            # decoder_input = self.decoder(z_recon)
+            # decoder_input = torch.clamp(decoder_input, min=-3, max=3)
+            samples = self._decode(z_recon)
+            samples = torch.clamp(samples, min=-1., max=1.)
+            # if samples.shape[1] == 3:
+            #     samples = utils.unsymmetrize_image_data(samples)
+            if x.shape[1] == 1:
+                writer.add_image('samples', utils.combine_imgs(samples, 5, 5)[None], epoch)  # [None]
+                if not self.reverse_test:
+                    print("正在随机采样．．．．")
+                    writer.add_image('samples', utils.combine_imgs(samples, 5, 5)[None], epoch)
+                else:
+                    print("正在逆向测试采样．．．．")
+                    writer.add_image('reverse_test/epoch_%d' % epoch, utils.combine_imgs(samples, 5, 5)[None],
+                                     tau_reverse_list[0] - i)
+            elif x.shape[1] == 3:
+                writer.add_image('samples', utils.combine_imgs(samples, 5, 5), epoch)
+                if not self.reverse_test:
+                    print("正在随机采样．．．．")
+                    writer.add_image('samples', utils.combine_imgs(samples, 5, 5), epoch)
+                else:
+                    print("正在逆向测试采样．．．．")
+                    writer.add_image('reverse_test/epoch_%d' % epoch, utils.combine_imgs(samples, 5, 5),
+                                     tau_reverse_list[0] - i)
         z, mu, log_std, all_log_q = self.input_for_diffusion(x[:8])
         # recon = self.decoder.decode_net(input_diffusion)
         # z_post = self.encoder(x[:8])
         recon = self._decode(z)
         recon = th.cat([x[:8].cpu(), recon], 0)
-        if samples.shape[1] == 1:
+        if x.shape[1] == 1:
             writer.add_image('reconstruction', utils.combine_imgs(recon, 2, 8)[None], epoch)
-        elif samples.shape[1] == 3:
+        elif x.shape[1] == 3:
             print("正在重构采样．．．．")
             writer.add_image('reconstruction', utils.combine_imgs(recon, 2, 8), epoch)
 
@@ -188,9 +263,9 @@ class Encoder(nn.Module):
             self.net = nn.Sequential(
                 nn.Conv2d(in_channel, H, 2, 2, 2),
                 nn.ReLU(),
-                nn.Conv2d(H, int(H/2), 3, 1, 1),
+                nn.Conv2d(H, int(H / 2), 3, 1, 1),
                 nn.ReLU(),
-                nn.Conv2d(int(H/2), int(H / 4), 3, 1, 1),
+                nn.Conv2d(int(H / 2), int(H / 4), 3, 1, 1),
                 nn.ReLU(),
                 nn.Conv2d(int(H / 4), int(H / 16), 3, 1, 1),
                 nn.Dropout(self.drop_out),
@@ -200,9 +275,9 @@ class Encoder(nn.Module):
             self.net = nn.Sequential(
                 nn.Conv2d(in_channel, H, 4, 2, 1),  # (64,512,16,16)
                 nn.ReLU(),
-                nn.Conv2d(H, int(H/2), 3, 1, 1),  # (64,256,16,16)
+                nn.Conv2d(H, int(H / 2), 3, 1, 1),  # (64,256,16,16)
                 nn.ReLU(),
-                nn.Conv2d(int(H/2), int(H / 4), 3, 1, 1),  # (64,128,16,16)
+                nn.Conv2d(int(H / 2), int(H / 4), 3, 1, 1),  # (64,128,16,16)
                 nn.ReLU(),
                 nn.Conv2d(int(H / 4), int(H / 8), 3, 1, 1),  # (64,64,16,16)
                 nn.ReLU(),
