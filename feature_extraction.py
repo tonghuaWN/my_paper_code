@@ -13,34 +13,34 @@ import copy
 import matplotlib.pyplot as plt
 import numpy as np
 
-root = "/home/wn/下载/code/classfication_with_torch-master"
+# root = "/home/wn/下载/code/classfication_with_torch-master"
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-transform = transforms.Compose([
-    transforms.ToTensor(),
-    transforms.Normalize(mean=(0.5,), std=(0.5,))
-])
-
-dataset = {
-    "train": datasets.MNIST(
-        root=root,
-        transform=transform,
-        train=True,
-        download=True
-    ),
-    "test": datasets.MNIST(
-        root=root,
-        transform=transform,
-        train=False
-    )
-}
-
-dataset_size = {x: len(dataset[x]) for x in ["train", "test"]}
-
-data_loader = {
-    x: DataLoader(
-        dataset=dataset[x], batch_size=256, shuffle=True
-    ) for x in ["train", "test"]
-}
+# transform = transforms.Compose([
+#     transforms.ToTensor(),
+#     transforms.Normalize(mean=(0.5,), std=(0.5,))
+# ])
+#
+# dataset = {
+#     "train": datasets.MNIST(
+#         root=root,
+#         transform=transform,
+#         train=True,
+#         download=True
+#     ),
+#     "test": datasets.MNIST(
+#         root=root,
+#         transform=transform,
+#         train=False
+#     )
+# }
+#
+# dataset_size = {x: len(dataset[x]) for x in ["train", "test"]}
+#
+# data_loader = {
+#     x: DataLoader(
+#         dataset=dataset[x], batch_size=256, shuffle=True
+#     ) for x in ["train", "test"]
+# }
 
 
 class Net(nn.Module):
@@ -135,9 +135,9 @@ class Net(nn.Module):
 
 def relative_complexity(train_queue, num_x_bits, in_channel):
     if in_channel == 1:
-        checkpoint_path = "/home/wn/下载/code/generative_models/generative_models/weight/mnist/last.pth"
+        checkpoint_path = "../weight/mnist/last.pth"
     elif in_channel == 3:
-        checkpoint_path = "/home/wn/下载/code/generative_models/generative_models/weight/cifar10/last.pth"
+        checkpoint_path = "../weight/cifar10/last.pth"
     else:
         checkpoint_path = ""
     net = Net(in_channel).cuda()
