@@ -274,23 +274,27 @@ class DDP(nn.Module):
                         dropout=0.1,
                         fold=1, predict_var=predict_var)
         self.betas = make_beta_schedule(type=C.beta_schedule, start=1e-4, end=2e-2, n_timestep=1000)
-        self.diffusion = GaussianDiffusion(betas=self.betas, model_mean_type="eps", model_var_type="fixedlarge",
+        self.diffusion = GaussianDiffusion(betas=self.betas, model_mean_type="eps", model_var_type="fixedsmall",
                                            loss_type="mse")
         self.sampler = get_time_sampler(sampler_type="loss-second-moment")(self.diffusion)
         self.optimizer_type = 'adam'
         self.lr = 2e-4
         self.optimizer = optim.Adam(self.model.parameters(), lr=self.lr)
         self.relative_complexity = None
+        self.p_sample_loop_progressive = C.p_sample_loop_progressive
+        self.paper = C.paper
 
     def forward(self, size, end=None, x_1=None):
-        return self.diffusion.p_sample_loop(self.model, size, end=end, x_1=x_1)
+        if self.p_sample_loop_progressive:
+            return self.diffusion.p_sample_loop_progressive(self.model, size)[0]
+        else:
+            return self.diffusion.p_sample_loop(self.model, size, end=end, x_1=x_1)
 
     def training_step(self, batch, batch_ix):
         img = batch
-        paper = False
         # time = torch.randint(size=(img.shape[0],), low=0, high=self.conf.model.schedule.n_timestep,
         #                      dtype=torch.int64, device=img.device)
-        if paper:
+        if self.paper:
             time = self.sampler.generate_ts(batch_ix, self.relative_complexity)
             _, weights = self.sampler.sample(img.size(0), device=img.device)
         else:
