@@ -57,7 +57,7 @@ class AbstractSampler(ABC):
                     tau_item = random.uniform(range_tau * 0.1, range_tau * 0.1 + 0.1)
                     tau_cliped = np.clip(tau_item, a_min=0.02, a_max=0.999)
                     result_list.append(tau_cliped)
-            elif plan == "plan-3":
+            elif plan == "plan-3":   # 对拖尾效果的验证
                 if i == relative_complexity[5]:
                     range_tau = relative_complexity.index(i)
                     # tau_item = random.uniform(range_tau * 0.1, range_tau * 0.1 + 0.1)
