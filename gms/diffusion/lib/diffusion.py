@@ -249,7 +249,7 @@ class GaussianDiffusion(nn.Module):
 
     @torch.no_grad()
     def p_sample_loop_progressive(self, model, shape, device='cuda', noise_fn=torch.randn, include_x0_pred_freq=50,
-                                  end=None, x_1=None):
+                                  end=None, x_1=None, resizers=None, range_t=0, paper=None):
 
         # img = noise_fn(shape, dtype=torch.float32).to(device)
         if x_1 is None:
@@ -261,7 +261,8 @@ class GaussianDiffusion(nn.Module):
 
         num_recorded_x0_pred = self.num_timesteps // include_x0_pred_freq
         x0_preds_ = torch.zeros((shape[0], num_recorded_x0_pred, *shape[1:]), dtype=torch.float32).to(device)
-
+        if resizers is not None:
+            down, up = resizers
         for i in reversed(range(end, self.num_timesteps)):
             # Sample p(x_{t-1} | x_t) as usual
             img, pred_x0 = self.p_sample(model=model,
@@ -277,7 +278,12 @@ class GaussianDiffusion(nn.Module):
 
             insert_mask = insert_mask.to(torch.float32).view(1, num_recorded_x0_pred, *([1] * len(shape[1:])))
             x0_preds_ = insert_mask * pred_x0[:, None, ...] + (1. - insert_mask) * x0_preds_
-
+            #### ILVR ####
+            if paper:
+                if resizers is not None:
+                    if i > range_t:
+                        img = img - up(down(img)) + up(
+                            down(self.q_sample(model_kwargs["ref_img"], t=torch.full((shape[0],), i, dtype=torch.int64).to(device), noise=torch.randn(*shape, device=device))))
         return img, x0_preds_
 
     # === Log likelihood calculation ===
