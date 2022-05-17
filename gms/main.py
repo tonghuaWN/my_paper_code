@@ -28,6 +28,7 @@ C.class_cond = 0
 C.binarize = 1
 C.pad32 = 0
 C.dataset = 'mnist'
+C.image_size = 28 if C.dataset == 'mnist' else 32
 C.test_freq = 5
 C.num_x_bits = 8
 C.relative_complexity = None
@@ -36,6 +37,8 @@ C.reverse_test = True
 C.beta_schedule = "cosine"
 C.p_sample_loop_progressive = True
 C.paper = True  # 测试论文相关代码
+C.down_N = 32
+C.range_t = 20
 
 if __name__ == '__main__':
     # PARSE CMD LINE
