@@ -27,7 +27,7 @@ class AbstractSampler(ABC):
         result_list = []
         numpy_label = label.cpu().detach().numpy()
         for i in numpy_label.tolist():
-            if plan == "plan-1":   # 在指定范围内进行某一类的扩散
+            if plan == "plan-1":  # 在指定范围内进行某一类的扩散
                 if i == relative_complexity[5]:
                     range_tau = relative_complexity.index(i)
                     # tau_item = random.uniform(range_tau * 0.1, range_tau * 0.1 + 0.1)
@@ -42,7 +42,7 @@ class AbstractSampler(ABC):
                     tau_item = random.uniform(range_tau * 0.1, range_tau * 0.1 + 0.1)
                     tau_cliped = np.clip(tau_item, a_min=0.02, a_max=0.999)
                     result_list.append(tau_cliped)
-            elif plan == "plan-2":   # 主要在某一范围内扩散，存在拖尾
+            elif plan == "plan-2":  # 主要在某一范围内扩散，存在拖尾
                 if i == relative_complexity[5]:
                     range_tau = relative_complexity.index(i)
                     # tau_item = random.uniform(range_tau * 0.1, range_tau * 0.1 + 0.1)
@@ -57,7 +57,7 @@ class AbstractSampler(ABC):
                     tau_item = random.uniform(range_tau * 0.1, range_tau * 0.1 + 0.1)
                     tau_cliped = np.clip(tau_item, a_min=0.02, a_max=0.999)
                     result_list.append(tau_cliped)
-            elif plan == "plan-3":   # 对拖尾效果的验证
+            elif plan == "plan-3":  # 对拖尾效果的验证　　结论：拖尾的作用很重要
                 if i == relative_complexity[5]:
                     range_tau = relative_complexity.index(i)
                     # tau_item = random.uniform(range_tau * 0.1, range_tau * 0.1 + 0.1)
@@ -72,6 +72,31 @@ class AbstractSampler(ABC):
                     tau_item = random.uniform(range_tau * 0.1, range_tau * 0.1 + 0.1)
                     tau_cliped = np.clip(tau_item, a_min=0.02, a_max=0.999)
                     result_list.append(tau_cliped)
+            elif plan == "plan-4":  # 将4位置类别或5位置的类别进行分开扩散，其余类别在0.7~0.9之间扩散
+                if i == relative_complexity[5] or i == relative_complexity[4]:
+                    range_tau = relative_complexity.index(i)
+                    # tau_item = random.uniform(range_tau * 0.1, range_tau * 0.1 + 0.1)
+                    while True:
+                        iterm = np.random.normal(loc=range_tau * 0.1 + 0.05, scale=0.2, size=None)
+                        if iterm <= 0.999:
+                            break
+                    tau_cliped = np.clip(iterm, a_min=range_tau * 0.1 - 0.05, a_max=0.999)
+                    result_list.append(tau_cliped)
+                else:
+                    range_tau = random.uniform(7, 9)
+                    tau_item = random.uniform(range_tau * 0.1, range_tau * 0.1 + 0.1)
+                    tau_cliped = np.clip(tau_item, a_min=0.02, a_max=0.999)
+                    result_list.append(tau_cliped)
+            elif plan == "plan-5":  # 将所有的类别都在0~1上进行扩散
+                range_tau = relative_complexity.index(i)
+                # tau_item = random.uniform(range_tau * 0.1, range_tau * 0.1 + 0.1)
+                while True:
+                    iterm = np.random.normal(loc=range_tau * 0.1 + 0.05, scale=0.2, size=None)  # 将方差调大，再进行测试　　scale=0.７
+                    if iterm <= 0.999:
+                        break
+                tau_cliped = np.clip(iterm, a_min=range_tau * 0.1 - 0.05, a_max=0.999)
+                tau_cliped = np.clip(tau_cliped, a_min=0.02, a_max=0.999)
+                result_list.append(tau_cliped)
         # tensor_tau_0 = torch.Tensor(result_list * 1000).cuda()     # [int(i*1000) for i in result_list]
         tensor_tau_0 = torch.Tensor([int(i * 1000) for i in result_list]).cuda().long()
         return tensor_tau_0
