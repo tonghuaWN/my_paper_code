@@ -249,7 +249,7 @@ class GaussianDiffusion(nn.Module):
 
     @torch.no_grad()
     def p_sample_loop_progressive(self, model, shape, device='cuda', noise_fn=torch.randn, include_x0_pred_freq=50,
-                                  end=None, x_1=None, resizers=None, range_t=0, paper=None):
+                                  end=None, x_1=None, resizers=None, range_t=0, paper=None, relative_complexity=None):
 
         # img = noise_fn(shape, dtype=torch.float32).to(device)
         if x_1 is None:
@@ -282,8 +282,11 @@ class GaussianDiffusion(nn.Module):
             if paper:
                 if resizers is not None:
                     if i > range_t:
-                        img = img - up(down(img)) + up(
-                            down(self.q_sample(model_kwargs["ref_img"], t=torch.full((shape[0],), i, dtype=torch.int64).to(device), noise=torch.randn(*shape, device=device))))
+                        #     img = img - up(down(img)) + up(
+                        #         down(self.q_sample(model_kwargs["ref_img"],
+                        #                            t=torch.full((shape[0],), i, dtype=torch.int64).to(device),
+                        #                            noise=torch.randn(*shape, device=device))[0]))  # 对参考图像加噪＋下采样＋上采样
+                        img = img - up(down(img)) + up(down(x0_preds_))  # 对预测的x0进行下采样＋上采样
         return img, x0_preds_
 
     # === Log likelihood calculation ===
