@@ -23,7 +23,7 @@ class AbstractSampler(ABC):
         """
         np.random.normal(loc=0.0, scale=1.0, size=None)
         """
-        plan = "plan-2"
+        plan = "plan-6"
         result_list = []
         numpy_label = label.cpu().detach().numpy()
         for i in numpy_label.tolist():
@@ -97,6 +97,17 @@ class AbstractSampler(ABC):
                 tau_cliped = np.clip(iterm, a_min=range_tau * 0.1 - 0.05, a_max=0.999)
                 tau_cliped = np.clip(tau_cliped, a_min=0.02, a_max=0.999)
                 result_list.append(tau_cliped)
+            elif plan == "plan-6":  # 在指定范围内进行某一类的扩散
+                if i == relative_complexity[-1] or i == relative_complexity[-2]:
+                    range_tau = relative_complexity.index(i)
+                    tau_item = random.uniform(range_tau * 0.1, range_tau * 0.1 + 0.1)
+                    tau_cliped = np.clip(tau_item, a_min=0.02, a_max=0.999)
+                    result_list.append(tau_cliped)
+                else:
+                    range_tau = random.uniform(0, 7)
+                    tau_item = random.uniform(range_tau * 0.1, range_tau * 0.1 + 0.1)
+                    tau_cliped = np.clip(tau_item, a_min=0.02, a_max=0.999)
+                    result_list.append(tau_cliped)
         # tensor_tau_0 = torch.Tensor(result_list * 1000).cuda()     # [int(i*1000) for i in result_list]
         tensor_tau_0 = torch.Tensor([int(i * 1000) for i in result_list]).cuda().long()
         return tensor_tau_0
