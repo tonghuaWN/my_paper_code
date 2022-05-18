@@ -11,7 +11,7 @@ from gms.diffusion.lib.model import UNet
 from gms.diffusion.lib.diffusion import GaussianDiffusion, make_beta_schedule
 from gms.diffusion.lib.samplers import get_time_sampler
 from torch import nn, optim
-from resizer import Resizer
+from train_ddpm.mindiffusion.resizer import Resizer
 
 
 class DDPM(nn.Module):
@@ -284,8 +284,8 @@ class DDP(nn.Module):
         self.relative_complexity = None
         self.p_sample_loop_progressive = C.p_sample_loop_progressive
         self.paper = C.paper
-        self.shape = (C.bs, 3, C.image_size, C.image_size)
-        self.shape_d = (C.bs, 3, int(C.image_size / C.down_N), int(C.image_size / C.down_N))
+        self.shape = (C.bs, C.latent_dim, C.latent_size, C.latent_size)
+        self.shape_d = (C.bs, C.latent_dim, int(C.latent_size / C.down_N), int(C.latent_size / C.down_N))
         self.down = Resizer(self.shape, 1 / C.down_N).to("cuda")
         self.up = Resizer(self.shape_d, C.down_N).to("cuda")
         self.resizers = (self.down, self.up)
@@ -295,7 +295,7 @@ class DDP(nn.Module):
         if self.p_sample_loop_progressive:
             return \
                 self.diffusion.p_sample_loop_progressive(self.model, size, resizers=self.resizers,
-                                                         range_t=self.range_t, paper=self.paper)[0]
+                                                         range_t=self.range_t, paper=self.paper, relative_complexity=self.relative_complexity)[0]
         else:
             return self.diffusion.p_sample_loop(self.model, size, end=end, x_1=x_1)
 
