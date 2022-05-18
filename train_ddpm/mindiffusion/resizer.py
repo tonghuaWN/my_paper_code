@@ -1,9 +1,9 @@
-# This code was taken from: https://github.com/assafshocher/resizer by Assaf Shocher
 import numpy as np
 import torch
 from math import pi
 from torch import nn
 
+# This code was taken from: https://github.com/assafshocher/resizer by Assaf Shocher
 
 class Resizer(nn.Module):
     def __init__(self, in_shape, scale_factor=None, output_shape=None, kernel=None, antialiasing=True):
