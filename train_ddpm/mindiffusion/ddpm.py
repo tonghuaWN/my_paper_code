@@ -291,11 +291,11 @@ class DDP(nn.Module):
         self.resizers = (self.down, self.up)
         self.range_t = C.range_t
 
-    def forward(self, size, end=None, x_1=None):
+    def forward(self, size, end=None, x_1=None, ref_eps=None):
         if self.p_sample_loop_progressive:
             return \
                 self.diffusion.p_sample_loop_progressive(self.model, size, resizers=self.resizers,
-                                                         range_t=self.range_t, paper=self.paper, relative_complexity=self.relative_complexity)[0]
+                                                         range_t=self.range_t, paper=self.paper, relative_complexity=self.relative_complexity, ref_eps=ref_eps)[0]
         else:
             return self.diffusion.p_sample_loop(self.model, size, end=end, x_1=x_1)
 

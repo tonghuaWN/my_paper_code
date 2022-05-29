@@ -124,6 +124,8 @@ class GaussianDiffusion(nn.Module):
                                            posterior_variance[1:].view(-1, 1)), 0)).view(-1))
         self.register("posterior_mean_coef1", (betas * torch.sqrt(alphas_cumprod_prev) / (1 - alphas_cumprod)))
         self.register("posterior_mean_coef2", ((1 - alphas_cumprod_prev) * torch.sqrt(alphas) / (1 - alphas_cumprod)))
+        self.register("sqrt_alphas", (torch.sqrt(alphas)))
+        self.register("alphas", alphas)
 
     def register(self, name, tensor):
         self.register_buffer(name, tensor.type(torch.float32))
@@ -195,7 +197,7 @@ class GaussianDiffusion(nn.Module):
             mean, _, _ = self.q_posterior_mean_variance(x_0=pred_x0, x_t=x, t=t)
         elif self.model_mean_type == 'eps':
             # the model predicts epsilon
-            pred_x0 = _maybe_clip(self.predict_start_from_noise(x_t=x, t=t, noise=model_output))
+            pred_x0 = _maybe_clip(self.predict_start_from_noise(x_t=x, t=t, noise=model_output))  # 向前预测一步，记为x0
             mean, _, _ = self.q_posterior_mean_variance(x_0=pred_x0, x_t=x, t=t)
         else:
             raise NotImplementedError(self.model_mean_type)
@@ -207,7 +209,7 @@ class GaussianDiffusion(nn.Module):
 
     def predict_start_from_noise(self, x_t, t, noise):
         return (extract(self.sqrt_recip_alphas_cumprod, t, x_t.shape) * x_t
-                - extract(self.sqrt_recipm1_alphas_cumprod, t, x_t.shape) * noise)
+                - extract(self.sqrt_recipm1_alphas_cumprod, t, x_t.shape) * noise)  # 引导项
 
     def predict_start_from_prev(self, x_t, t, x_prev):
 
@@ -247,9 +249,54 @@ class GaussianDiffusion(nn.Module):
 
         return img
 
+    def get_ref_eps(self, model, img, shape, end, start, noise_fn=torch.randn, device='cuda'):
+        eps = 0
+        # img = noise_fn(shape, dtype=torch.float32).to(device)
+        for i in reversed(range(end, start)):
+            t = torch.full((shape[0],), i, dtype=torch.int64).to(device)
+            model_output = model(img, t)
+            coef = extract(self.posterior_mean_coef1 * self.sqrt_one_minus_alphas_cumprod / self.sqrt_alphas, t,
+                           img.shape)
+            eps += coef * model_output
+        return eps / 100.0
+
+    def get_t_mean(self, model, img, t, clip_denoised=True):
+        model_output = model(img, t)
+        _maybe_clip = lambda x_: (x_.clamp(min=-1, max=1) if clip_denoised else x_)
+        pred_x0 = _maybe_clip(self.predict_start_from_noise(x_t=img, t=t, noise=model_output))  # 向前预测一步，记为x0
+        mean, _, _ = self.q_posterior_mean_variance(x_0=pred_x0, x_t=img, t=t)
+        return mean
+
+    def get_ref_mean(self, model, shape, end, start, noise_fn=torch.randn, device='cuda', clip_denoised=True):
+        img = noise_fn(shape, dtype=torch.float32).to(device)
+        eps = 0
+        _maybe_clip = lambda x_: (x_.clamp(min=-1, max=1) if clip_denoised else x_)
+        for i in reversed(range(end, start)):
+            t = torch.full((shape[0],), i, dtype=torch.int64).to(device)
+            model_output = model(img, t)
+            pred_x0 = _maybe_clip(self.predict_start_from_noise(x_t=img, t=t, noise=model_output))  # 向前预测一步，记为x0
+            mean, _, _ = self.q_posterior_mean_variance(x_0=pred_x0, x_t=img, t=t)
+            eps += mean
+        return eps / (start - end)
+
+    def corrector(self, model, shape, img, i, device="cuda"):
+        t = torch.full((shape[0],), i, dtype=torch.int64).to(device)
+        target_snr = 0.6
+        alpha = self.alphas[i] * torch.ones(shape[0]).to("cuda")
+        n_steps = 10
+        for i in range(n_steps):
+            model_output = model(img, t)
+            noise = torch.randn_like(img)
+            grad_norm = torch.norm(model_output.reshape(model_output.shape[0], -1), dim=-1).mean()
+            noise_norm = torch.norm(noise.reshape(noise.shape[0], -1), dim=-1).mean()
+            step_size = (target_snr * noise_norm / grad_norm) ** 2 * 2 * alpha
+            img_mean = img + step_size[:, None, None, None] * model_output
+            img = img_mean + torch.sqrt(step_size * 2)[:, None, None, None] * noise
+        return img
+
     @torch.no_grad()
     def p_sample_loop_progressive(self, model, shape, device='cuda', noise_fn=torch.randn, include_x0_pred_freq=50,
-                                  end=None, x_1=None, resizers=None, range_t=0, paper=None, relative_complexity=None):
+                                  end=None, x_1=None, resizers=None, range_t=0, paper=None, relative_complexity=None, ref_eps=None):
 
         # img = noise_fn(shape, dtype=torch.float32).to(device)
         if x_1 is None:
@@ -279,14 +326,27 @@ class GaussianDiffusion(nn.Module):
             insert_mask = insert_mask.to(torch.float32).view(1, num_recorded_x0_pred, *([1] * len(shape[1:])))
             x0_preds_ = insert_mask * pred_x0[:, None, ...] + (1. - insert_mask) * x0_preds_
             #### ILVR ####
-            if paper:
+            ref_time = [999, 900, 800, 700, 600, 500, 400, 300, 200, 100]
+            # ref_time = []
+            # img = self.corrector(model, shape, img, i)
+            guided = True
+            if guided:
                 if resizers is not None:
+                    # if i in ref_time:
+                    #     t = torch.full((shape[0],), i, dtype=torch.int64).to(device)
+                    #     ref_eps = self.get_ref_eps(model, img, shape, end=i - 100, start=i)
+                    #     mean = self.get_t_mean(model, img, t)
+                    #     img = img - mean + ref_eps
                     if i > range_t:
-                        #     img = img - up(down(img)) + up(
-                        #         down(self.q_sample(model_kwargs["ref_img"],
-                        #                            t=torch.full((shape[0],), i, dtype=torch.int64).to(device),
-                        #                            noise=torch.randn(*shape, device=device))[0]))  # 对参考图像加噪＋下采样＋上采样
-                        img = img - up(down(img)) + up(down(x0_preds_))  # 对预测的x0进行下采样＋上采样
+                    #     # img = img - up(down(img)) + up(
+                    #     #     down(self.q_sample(model_kwargs["ref_img"],
+                    #     #                        t=torch.full((shape[0],), i, dtype=torch.int64).to(device),
+                    #     #                        noise=torch.randn(*shape, device=device))[0]))  # 对参考图像加噪＋下采样＋上采样
+                        img = img - up(down(img)) + up(down(self.q_sample(ref_eps,
+                                                                          t=torch.full((shape[0],), i,
+                                                                                       dtype=torch.int64).to(device),
+                                                                          noise=torch.randn(*shape, device=device))[
+                                                                0]))  # 对预测的x0进行下采样＋上采样
         return img, x0_preds_
 
     # === Log likelihood calculation ===

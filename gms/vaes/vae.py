@@ -10,6 +10,7 @@ from train_ddpm.mindiffusion.ddpm import DDPM
 from train_ddpm.mindiffusion.unet import Conv3
 import numpy as np
 from train_ddpm.mindiffusion.ddpm import DDP
+import torchvision.utils as th_utils
 
 
 @torch.jit.script
@@ -77,6 +78,7 @@ class VAE(utils.GM):
 
     def __init__(self, C):
         super().__init__(C)
+        self.C = C
         self.relative_complexity = None
         self.encoder = Encoder(C.z_size, C)
         self.decoder = Decoder(C.z_size, C)
@@ -215,42 +217,73 @@ class VAE(utils.GM):
         for i in tau_reverse_list:
             z_recon = self.ddpm.forward((25, 16, 16, 16), end=i, x_1=x_1)
             # decoder_input = self.decoder(z_recon)
-            # decoder_input = torch.clamp(decoder_input, min=-3, max=3)
-            samples = self._decode(z_recon)
-            samples = torch.clamp(samples, min=-1., max=1.)
+            decoder_input = torch.clamp(z_recon, min=-3, max=3)
+            samples = self._decode(decoder_input)
+            print(torch.max(samples))
+            print(torch.min(samples))
+            samples = torch.clamp(samples, min=-3., max=3.)
             # if samples.shape[1] == 3:
             #     samples = utils.unsymmetrize_image_data(samples)
             if x.shape[1] == 1:
-                writer.add_image('samples', utils.combine_imgs(samples, 5, 5)[None], epoch)  # [None]
+                writer.add_image('samples',
+                                 th_utils.make_grid(samples, nrow=5, padding=1, normalize=True, scale_each=False,
+                                                    pad_value=0), epoch)  # [None]
                 if not self.reverse_test:
                     print("正在随机采样．．．．")
-                    writer.add_image('samples', utils.combine_imgs(samples, 5, 5)[None], epoch)
+                    writer.add_image('samples',
+                                     th_utils.make_grid(samples, nrow=5, padding=1, normalize=True, scale_each=False,
+                                                        pad_value=0), epoch)
                 else:
                     print("正在逆向测试采样．．．．")
-                    writer.add_image('reverse_test/epoch_%d' % epoch, utils.combine_imgs(samples, 5, 5)[None],
+                    # writer.add_image('reverse_test/epoch_%d' % epoch, utils.combine_imgs(samples, 5, 5)[None],
+                    #                  tau_reverse_list[0] - i)
+                    writer.add_image('reverse_test/epoch_%d' % epoch,
+                                     th_utils.make_grid(samples, nrow=5, padding=1, normalize=True, scale_each=False,
+                                                        pad_value=0),
                                      tau_reverse_list[0] - i)
             elif x.shape[1] == 3:
-                writer.add_image('samples', utils.combine_imgs(samples, 5, 5), epoch)
+                writer.add_image('samples',
+                                 th_utils.make_grid(samples, nrow=5, padding=1, normalize=True, scale_each=False,
+                                                    pad_value=0), epoch)
                 if not self.reverse_test:
                     print("正在随机采样．．．．")
-                    writer.add_image('samples', utils.combine_imgs(samples, 5, 5), epoch)
+                    writer.add_image('samples',
+                                     th_utils.make_grid(samples, nrow=5, padding=1, normalize=True, scale_each=False,
+                                                        pad_value=0), epoch)
                 else:
                     print("正在逆向测试采样．．．．")
-                    writer.add_image('reverse_test/epoch_%d' % epoch, utils.combine_imgs(samples, 5, 5),
+                    # writer.add_image('reverse_test/epoch_%d' % epoch, utils.combine_imgs(samples, 5, 5),
+                    #                  tau_reverse_list[0] - i)
+                    writer.add_image('reverse_test/epoch_%d' % epoch,
+                                     th_utils.make_grid(samples, nrow=5, padding=1, normalize=True, scale_each=False,
+                                                        pad_value=0),
                                      tau_reverse_list[0] - i)
         z, mu, log_std, all_log_q = self.input_for_diffusion(x[:8])
         # recon = self.decoder.decode_net(input_diffusion)
         # z_post = self.encoder(x[:8])
         recon = self._decode(z)
+        print("重构图像：", torch.max(recon))
+        print("重构图像:", torch.min(recon))
+        print("原始图像：", torch.max(x))
+        print("原始图像:", torch.min(x))
         recon = th.cat([x[:8].cpu(), recon], 0)
         if x.shape[1] == 1:
-            writer.add_image('reconstruction', utils.combine_imgs(recon, 2, 8)[None], epoch)
+            # writer.add_image('reconstruction', utils.combine_imgs(recon, 2, 8)[None], epoch)
+            print("正在重构采样．．．．")
+            writer.add_image('reconstruction',
+                             th_utils.make_grid(recon, nrow=8, padding=1, normalize=True, scale_each=False,
+                                                pad_value=0), epoch)
         elif x.shape[1] == 3:
             print("正在重构采样．．．．")
-            writer.add_image('reconstruction', utils.combine_imgs(recon, 2, 8), epoch)
+            writer.add_image('reconstruction',
+                             th_utils.make_grid(recon, nrow=8, padding=1, normalize=True, scale_each=False,
+                                                pad_value=0), epoch)
 
     def _decode(self, x):
-        return 1.0 * (self.decoder(x).exp() > 0.5).cpu()
+        if self.C.dataset == "mnist":
+            return 1.0 * (self.decoder(x).exp() > 0.5).cpu()
+        elif self.C.dataset == "cifar10":
+            return 1.0 * self.decoder(x).cpu()
 
 
 class Encoder(nn.Module):
@@ -274,15 +307,15 @@ class Encoder(nn.Module):
         elif in_channel == 3:
             self.net = nn.Sequential(
                 nn.Conv2d(in_channel, H, 4, 2, 1),  # (64,512,16,16)
-                nn.ReLU(),
+                nn.SELU(),
                 nn.Conv2d(H, int(H / 2), 3, 1, 1),  # (64,256,16,16)
-                nn.ReLU(),
+                nn.SELU(),
                 nn.Conv2d(int(H / 2), int(H / 4), 3, 1, 1),  # (64,128,16,16)
-                nn.ReLU(),
+                nn.SELU(),
                 nn.Conv2d(int(H / 4), int(H / 8), 3, 1, 1),  # (64,64,16,16)
-                nn.ReLU(),
+                nn.SELU(),
                 nn.Conv2d(int(H / 8), int(H / 16), 3, 1, 1),  # (64,32,16,16)
-                nn.ReLU(),
+                nn.SELU(),
                 # nn.Conv2d(H / 8, H / 16., 3, 1, 1),  # (64,32,8,8)
                 # nn.ReLU(),
                 # nn.Conv2d(H, H, 4, 2, 1),  # (64,512,,2)
@@ -395,17 +428,17 @@ class Decoder(nn.Module):
                 nn.ConvTranspose2d(16, 16, 2, 2),
                 Conv3(16, 16),
                 Conv3(16, 16),
-                nn.ReLU(),  # (64,512,5,5)
+                nn.SELU(),  # (64,512,5,5)
                 nn.ConvTranspose2d(16, 16, 1, 1),
                 Conv3(16, 16),
                 Conv3(16, 16),
-                nn.ReLU(),  # (64,512,12,12)
+                nn.SELU(),  # (64,512,12,12)
                 nn.ConvTranspose2d(16, 16, 1, 1),
                 Conv3(16, 16),
                 Conv3(16, 16),
-                nn.ReLU(),
+                nn.SELU(),
                 nn.ConvTranspose2d(16, 3, 1, 1),
-                nn.ReLU(),
+                nn.SELU(),
                 # nn.ConvTranspose2d(H, out_channel, 4, 1),
                 # nn.ReLU(),
                 nn.Dropout(self.drop_out),
@@ -458,6 +491,7 @@ class Decoder(nn.Module):
     def forward(self, x):
         # x = self.net(x[..., None, None])
         x = self.net(x)
+        # x = nn.Sigmoid()(x)
         # x = self.diffusion_net(x)
         return x
 

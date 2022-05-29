@@ -11,17 +11,20 @@ from gms import utils
 from gms import autoregs, vaes, gans, diffusion
 import torch
 from feature_extraction import relative_complexity
+import datetime
+import os
 
 # TRAINING SCRIPT
-
+time1 = datetime.datetime.now()
+time1_str = datetime.datetime.strftime(time1, '%Y-%m-%d %H:%M:%S')
 C = utils.AttrDict()
 C.model = 'vae'
-C.bs = 400
+C.bs = 385
 C.hidden_size = 512
 C.device = 'cuda'
 C.num_epochs = 120
 C.save_n = 100
-C.logdir = pathlib.Path('./logs/')
+C.logdir = pathlib.Path('./logs/', time1_str)
 C.full_cmd = 'python ' + ' '.join(sys.argv)  # full command that was called
 C.lr = 1e-4
 C.class_cond = 0
@@ -29,7 +32,7 @@ C.binarize = 1
 C.pad32 = 0
 C.dataset = 'mnist'
 C.image_size = 28 if C.dataset == 'mnist' else 32
-C.test_freq = 5
+C.test_freq = 15
 C.num_x_bits = 1
 C.relative_complexity = None
 C.channel = 1 if C.dataset == 'mnist' else 3
@@ -37,10 +40,11 @@ C.reverse_test = True
 C.beta_schedule = "cosine"
 C.p_sample_loop_progressive = True
 C.paper = True  # 测试论文相关代码
-C.down_N = 4
+C.down_N = 2  # 4-->2
 C.range_t = 20
 C.latent_dim = 16
 C.latent_size = 16
+C.random_sample = False
 
 if __name__ == '__main__':
     # PARSE CMD LINE
@@ -67,6 +71,8 @@ if __name__ == '__main__':
         'gan': gans.GAN,
         'diffusion': diffusion.DiffusionModel,
     }[tempC.model]
+    if not os.path.exists(C.logdir):
+        os.mkdir(C.logdir)
     defaults = {'logdir': C.logdir / C.model}
     for key, value in Model.DC.items():
         defaults[key] = value
@@ -127,7 +133,51 @@ if __name__ == '__main__':
                     test_batch[0], test_batch[1] = test_batch[0].to(C.device), test_batch[1].to(C.device)
                 # run the model specific evaluate function. usually draws samples and creates other relevant visualizations.
                 eval_time = time.time()
-                model.evaluate(writer, test_batch[0], epoch)
+                if C.random_sample:
+                    model.evaluate(writer, test_batch[0], epoch)
+                else:
+                    x_1 = torch.randn(25, *(16, 16, 16)).to("cuda:0")
+                    j = 0
+                    for i in reversed(model.ddpm.relative_complexity):
+                        for test_batch in test_ds:
+                            test_batch[0], test_batch[1] = test_batch[0].to(C.device), test_batch[1].to(C.device)
+                            label = test_batch[1].cpu().numpy().tolist()
+                            range_tau = label.index(i)
+                            single_sample = test_batch[0][range_tau].reshape(1, test_batch[0].shape[1],
+                                                                             test_batch[0].shape[2],
+                                                                             test_batch[0].shape[3])
+                            test_in = single_sample.repeat(25, 1, 1, 1).to("cuda")
+
+                            with th.no_grad():
+                                eval_time = time.time()
+                                ref_z, _, _, _ = model.input_for_diffusion(test_in)
+                                z_recon = model.ddpm.forward((25, 16, 16, 16), end=900 - i * 100, x_1=x_1,
+                                                             ref_eps=ref_z)
+                                logger['dt/evaluate'] = time.time() - eval_time
+                                samples = model._decode(z_recon)
+                                samples = torch.clamp(samples, min=-1., max=1.)
+                                if test_batch[0].shape[1] == 1:
+                                    writer.add_image('samples', utils.combine_imgs(samples, 5, 5)[None], j)  # [None]
+                                    if not model.reverse_test:
+                                        print("正在随机采样．．．．")
+                                        writer.add_image('samples', utils.combine_imgs(samples, 5, 5)[None], j)
+                                    else:
+                                        print("正在逆向测试采样．．．．")
+                                        writer.add_image('reverse_test/epoch_%d' % j,
+                                                         utils.combine_imgs(samples, 5, 5)[None],
+                                                         i * 100)
+                                elif test_batch[0].shape[1] == 3:
+                                    writer.add_image('samples', utils.combine_imgs(samples, 5, 5), j)
+                                    if not model.reverse_test:
+                                        print("正在随机采样．．．．")
+                                        writer.add_image('samples', utils.combine_imgs(samples, 5, 5), j)
+                                    else:
+                                        print("正在逆向测试采样．．．．")
+                                        writer.add_image('reverse_test/epoch_%d' % j, utils.combine_imgs(samples, 5, 5),
+                                                         i * 100)
+                                j = j + 1
+                            break
+                        print("采样完毕！")
                 logger['dt/evaluate'] = time.time() - eval_time
             model.train()
             # LOGGING

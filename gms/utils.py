@@ -44,7 +44,7 @@ def load_cifar10(bs, binarize=False, pad32=False):
     import torch.utils.data as data
 
     tfs = transforms.Compose(
-        [transforms.ToTensor(), transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))]
+        [transforms.ToTensor(), transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))]
     )
     # transform = transforms.Compose(tfs)
     train_dset = CIFAR10('../data', transform=tfs, train=True, download=True)
@@ -177,7 +177,8 @@ def combine_imgs(arr, row=5, col=5):
             x = arr.reshape([row, col, 28, 28]).permute(0, 2, 1, 3).flatten(0, 1).flatten(-2)
         elif C == 3:
             assert BS == row * col and H == W == 32, (BS, row, col, H, W)
-            x = arr.reshape([row, col, 3, 32, 32]).permute(2, 0, 3, 1, 4).flatten(1, 2).flatten(-2)
+            # x = arr.reshape([row, col, 3, 32, 32]).permute(2, 0, 3, 1, 4).flatten(1, 2).flatten(-2)
+            x = arr.reshape([row, col, 3, 32, 32]).permute(2, 0, 3, 1, 4).contiguous().flatten(1, 2).flatten(-2)
         return x
     elif len(arr.shape) == 5:  # video
         BS, T, C, H, W = arr.shape
